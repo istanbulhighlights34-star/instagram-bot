@@ -163,17 +163,22 @@ def post_news():
         image_ready = download_image(news['image_url'])
 
     if image_ready:
-        print("Instagram'a giriş yapılıyor (Güvenli Anahtar ile)...")
+        print("Instagram'a VIP giriş yapılıyor (Güvenli Anahtar ile)...")
         try:
             cl = Client()
+            
+            # Eğer VIP biletimiz varsa sadece onu cihaza tanıtıp geçiyoruz.
+            # Kesinlikle .login() (şifre soran kapı) kullanmıyoruz!
             if IG_SESSION:
                 cl.set_settings(json.loads(IG_SESSION))
+            else:
+                cl.login(IG_USERNAME, IG_PASSWORD)
                 
-            cl.login(IG_USERNAME, IG_PASSWORD)
             print("Fotoğraf yükleniyor...")
             cl.photo_upload(TEMP_IMAGE, caption)
             print("BAŞARILI! Haber paylaşıldı.")
             save_posted_news(news['link'])
+            
         except BaseException as e:
             print(f"Instagram'a yüklenirken hata oluştu: {e}")
     else:
