@@ -25,6 +25,7 @@ jobs:
         env:
           IG_USERNAME: ${{ secrets.IG_USERNAME }}
           IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
+          IG_SESSION: ${{ secrets.IG_SESSION }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python bot.py
 
