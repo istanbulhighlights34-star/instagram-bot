@@ -1,4 +1,5 @@
 import os
+import json
 import requests
 import feedparser
 import cloudscraper
@@ -8,6 +9,7 @@ from google import genai
 # Şifreler GitHub Secrets kasasından güvenle çekilir
 IG_USERNAME = os.getenv("IG_USERNAME")
 IG_PASSWORD = os.getenv("IG_PASSWORD")
+IG_SESSION = os.getenv("IG_SESSION")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 RSS_FEEDS = [
@@ -22,7 +24,6 @@ TEMP_IMAGE = "gecici_haber_resmi.jpg"
 
 def load_posted_news():
     if not os.path.exists(POSTED_FILE):
-        # Dosya yoksa boş oluştur ki GitHub hata vermesin
         with open(POSTED_FILE, "w", encoding="utf-8") as f:
             pass
         return []
@@ -106,8 +107,13 @@ def post_news():
     caption = generate_caption(news['title'], news['summary'])
     
     if download_image(news['image_url']):
-        print("Instagram'a giriş yapılıyor...")
+        print("Instagram'a giriş yapılıyor (Güvenli Anahtar ile)...")
         cl = Client()
+        
+        # Eğer güvenli anahtar (Session) varsa onu kullan
+        if IG_SESSION:
+            cl.set_settings(json.loads(IG_SESSION))
+            
         cl.login(IG_USERNAME, IG_PASSWORD)
         
         print("Fotoğraf yükleniyor...")
