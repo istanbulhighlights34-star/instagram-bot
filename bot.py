@@ -189,8 +189,8 @@ def generate_ai_image_unbounded(title, destination):
     prompt = (
         'Create an original editorial sports illustration inspired by this Turkish news title: '
         + title + '. Black and white palette with subtle red accents, dramatic stadium lighting. '
-        'Do not include text, logos, watermarks, or recognizable real people. '
-        'Use symbolic football imagery; do not portray an actual event as a documentary photo.'
+        'Do not include text or watermarks. When the title names a player, depict that player in Beşiktaş black-and-white training wear or football kit. '
+        'Create a sports illustration, not a fabricated documentary photo of an actual event. For news without a named person, use Beşiktaş football imagery.'
     )
     data = gemini_request(os.getenv('GEMINI_IMAGE_MODEL', 'gemini-nano-banana-2.1'), {
         'contents': [{'parts': [{'text': prompt}]}],
@@ -445,6 +445,65 @@ def download_article_image(news, destination):
     return False
 
 
+
+def download_web_image(news, destination):
+    """Search Wikimedia on the web for a subject-matched photo."""
+    from PIL import ImageOps
+    subject = None
+    if PLAYER_MEDIA_CATALOG.exists():
+        catalog = json.loads(PLAYER_MEDIA_CATALOG.read_text(encoding='utf-8'))
+        headline = ' ' + subject_key(news['title']) + ' '
+        for player in catalog['players']:
+            if any(' ' + subject_key(alias) + ' ' in headline
+                   for alias in player.get('aliases', []) + [player['name']]):
+                subject = player['name']
+                break
+    # For uncatalogued stories use the headline rather than guessing a player.
+    query = (subject + ' Beşiktaş') if subject else news['title']
+    LOG.info('İnternette konuya uygun fotoğraf aranıyor: %s', query)
+    try:
+        response = requests.get('https://commons.wikimedia.org/w/api.php',
+            params={'action': 'query', 'format': 'json', 'generator': 'search',
+                    'gsrsearch': query, 'gsrnamespace': 6, 'gsrlimit': 5,
+                    'prop': 'imageinfo', 'iiprop': 'url|extmetadata', 'iiurlwidth': 1080},
+            headers={'User-Agent': 'BesiktasNewsBot/1.0'}, timeout=(5, 15))
+        response.raise_for_status()
+        for page in response.json().get('query', {}).get('pages', {}).values():
+            for info in page.get('imageinfo', []):
+                meta = info.get('extmetadata', {})
+                license_name = clean_text(meta.get('LicenseShortName', {}).get('value', '')).casefold()
+                if license_name not in ('cc0', 'public domain', 'pd'):
+                    continue
+                description = subject_key(page.get('title', '') + ' ' +
+                    clean_text(meta.get('ImageDescription', {}).get('value', '')))
+                if subject and not all(token in description.split() for token in subject_key(subject).split()):
+                    continue
+                # Require club context; never use another team's player photograph.
+                if 'besiktas' not in description and 'bjk' not in description:
+                    continue
+                url = info.get('thumburl') or info.get('url', '')
+                if not url.startswith('https://'):
+                    continue
+                with requests.get(url, stream=True, timeout=(5, 15),
+                                  headers={'User-Agent': 'BesiktasNewsBot/1.0'}) as photo:
+                    photo.raise_for_status()
+                    raw = bytearray()
+                    for chunk in photo.iter_content(65536):
+                        raw.extend(chunk)
+                        if len(raw) > 15 * 1024 * 1024:
+                            raise ValueError('Görsel boyutu sınırı aşıldı.')
+                with Image.open(io.BytesIO(raw)) as picture:
+                    if min(picture.size) < 300:
+                        continue
+                    picture = ImageOps.exif_transpose(picture).convert('RGB')
+                    ImageOps.pad(picture, (1080, 1080), color='black').save(destination, 'JPEG', quality=95)
+                LOG.info('İnternet aramasından konuya eşleşen fotoğraf bulundu.')
+                return True
+    except Exception as exc:
+        LOG.warning('İnternet görsel araması tamamlanamadı: %s', type(exc).__name__)
+    return False
+
+
 def post_news(dry_run=False):
     if not os.getenv('GEMINI_API_KEY'):
         raise RuntimeError('GEMINI_API_KEY eksik.')
@@ -461,25 +520,25 @@ def post_news(dry_run=False):
     LOG.info('Metin hazır; görsel üretimine geçiliyor.')
     with tempfile.TemporaryDirectory(prefix='instagram-news-') as folder:
         image_path = Path(folder) / 'haber.jpg'
-        player_photo = choose_player_photo(news['title'], image_path)
-        if player_photo['status'] == 'ready':
-            LOG.info('Habere eşleşen oyuncu fotoğrafı: %s', player_photo['player'])
-            ai_image = True
-        elif download_article_image(news, image_path):
-            ai_image = True
-        else:
-            try:
-                ai_image = generate_ai_image(news['title'], image_path)
-            except Exception as exc:
-                LOG.warning('Yapay zekâ görsel hatası: %s; B planına geçiliyor.', type(exc).__name__)
-                ai_image = False
+        player_photo = {'status': 'no-match'}
         fallback_photo = None
-        if not ai_image:
-            LOG.info('B planına geçiliyor: Beşiktaş stadyum fotoğrafı.')
-            fallback_photo = download_fallback_image(image_path)
-            if not fallback_photo:
-                report_outcome('Yapay zekâ ve yedek fotoğraf alınamadı; yüklenebilecek görsel yok. Haber kaydedilmedi.')
-                return
+        try:
+            image_ready = generate_ai_image(news['title'], image_path)
+        except Exception as exc:
+            LOG.warning('Yapay zekâ görsel hatası: %s', type(exc).__name__)
+            image_ready = False
+        if not image_ready:
+            LOG.info('İkinci aşama: oyuncu fotoğraf havuzu ve internet araması.')
+            player_photo = choose_player_photo(news['title'], image_path)
+            image_ready = player_photo['status'] == 'ready'
+            if not image_ready:
+                image_ready = download_web_image(news, image_path)
+        if not image_ready:
+            LOG.info('Son aşama: haber sitesinin kapak fotoğrafı.')
+            image_ready = download_article_image(news, image_path)
+        if not image_ready:
+            report_outcome('Yapay zekâ, internet araması ve haber kapağından uygun görsel alınamadı. Haber kaydedilmedi.')
+            return
         if dry_run:
             import shutil
             preview = Path('preview')
