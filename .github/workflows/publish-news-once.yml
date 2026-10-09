@@ -29,6 +29,7 @@ jobs:
           IG_SESSION: ${{ secrets.IG_SESSION }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_TEXT_MODEL: gemini-3.8-flash
+          APPROVED_NEWS_PATH: approved_news.json
         run: python publish_news_once.py
       - name: Görseli ve açıklamayı kaydet
         if: always()
