@@ -505,6 +505,88 @@ def download_commons_image(news, destination):
 
 
 
+class SearchImageParser(HTMLParser):
+    """Extract full-size image URLs and source context from image results."""
+    def __init__(self):
+        super().__init__()
+        self.results = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag.lower() != 'a' or 'm' not in attrs:
+            return
+        try:
+            data = json.loads(attrs['m'])
+        except (ValueError, TypeError):
+            return
+        if data.get('murl') and data.get('purl'):
+            self.results.append(data)
+
+
+def public_photo_url(url):
+    import ipaddress
+    parsed = urlparse(url)
+    host = parsed.hostname or ''
+    if parsed.scheme not in ('http', 'https') or not host or parsed.username or parsed.password:
+        return False
+    if host in ('localhost', 'localhost.localdomain') or host.endswith(('.local', '.internal')):
+        return False
+    try:
+        return ipaddress.ip_address(host).is_global
+    except ValueError:
+        return True
+
+
+def image_matches_subject(result, subject):
+    context = subject_key(result.get('t', '') + ' ' + result.get('desc', '') + ' ' + result.get('purl', '') + ' ' + result.get('murl', ''))
+    if subject and subject_key(subject).split()[-1] not in context.split():
+        return False
+    return 'besiktas' in context or 'bjk' in context
+
+
+def download_search_image(subject, news, destination):
+    from PIL import ImageOps
+    query = (subject.split()[-1] if subject else news['title']) + ' Beşiktaş forma'
+    LOG.info('Doğrudan görsel araması: %s', query)
+    try:
+        response = requests.get('https://www.bing.com/images/search', params={'q': query},
+                                headers={'User-Agent': 'Mozilla/5.0'}, timeout=(5, 15))
+        response.raise_for_status()
+        parser = SearchImageParser()
+        parser.feed(response.text[:2_000_000])
+        candidates = [r for r in parser.results if image_matches_subject(r, subject)
+                      and public_photo_url(r['murl']) and public_photo_url(r['purl'])
+                      and r['purl'].split('#')[0] != news['link'].split('#')[0]]
+        history = FALLBACK_HISTORY.read_text(encoding='utf-8').splitlines() if FALLBACK_HISTORY.exists() else []
+        candidates = [r for r in candidates if r['murl'] not in history]
+        random.shuffle(candidates)
+        LOG.info('Görsel araması: %s sonuç, %s uygun ve kullanılmamış fotoğraf.', len(parser.results), len(candidates))
+        for result in candidates[:6]:
+            try:
+                with requests.get(result['murl'], stream=True, timeout=(5, 15),
+                                  headers={'User-Agent': 'Mozilla/5.0'}) as photo:
+                    photo.raise_for_status()
+                    raw = bytearray()
+                    for chunk in photo.iter_content(65536):
+                        raw.extend(chunk)
+                        if len(raw) > 15 * 1024 * 1024:
+                            raise ValueError('Görsel boyutu sınırı aşıldı.')
+                with Image.open(io.BytesIO(raw)) as picture:
+                    if min(picture.size) < 300:
+                        continue
+                    picture = ImageOps.exif_transpose(picture).convert('RGB')
+                    ImageOps.pad(picture, (1080, 1080), color='black').save(destination, 'JPEG', quality=95)
+                news['_web_image_url'] = result['murl']
+                LOG.info('Arama görselinin kaynak sayfası: %s', result['purl'])
+                LOG.info('Arama görselinin adresi: %s', result['murl'])
+                return True
+            except Exception as exc:
+                LOG.warning('Arama fotoğrafı indirilemedi: %s', type(exc).__name__)
+    except Exception as exc:
+        LOG.warning('Görsel araması tamamlanamadı: %s', type(exc).__name__)
+    return False
+
+
 def download_web_image(news, destination):
     """Search publicly indexed websites, then try Commons if needed."""
     import feedparser
@@ -518,7 +600,9 @@ def download_web_image(news, destination):
                    for alias in player.get('aliases', []) + [player['name']]):
                 subject = player['name']
                 break
-    query = (subject + ' Beşiktaş fotoğraf') if subject else (news['title'] + ' fotoğraf')
+    query = (subject.split()[-1] + ' Beşiktaş fotoğraf') if subject else (news['title'] + ' fotoğraf')
+    if download_search_image(subject, news, destination):
+        return True
     LOG.info('Genel web araması: %s', query)
     try:
         response = requests.get('https://www.bing.com/search',
@@ -527,6 +611,7 @@ def download_web_image(news, destination):
                                 headers={'User-Agent': 'BesiktasNewsBot/1.0'})
         response.raise_for_status()
         results = feedparser.parse(response.content)
+        LOG.info('Web araması %s sonuç döndürdü.', len(results.entries))
         tried = 0
         for entry in results.entries:
             link = entry.get('link', '')
@@ -544,7 +629,7 @@ def download_web_image(news, destination):
             if parsed.hostname.removeprefix('www.') == urlparse(news['link']).hostname.removeprefix('www.'):
                 continue
             description = subject_key(entry.get('title', '') + ' ' + clean_text(entry.get('summary', '')))
-            if subject and not all(token in description.split() for token in subject_key(subject).split()):
+            if subject and subject_key(subject).split()[-1] not in description.split():
                 continue
             if not any(word in description.split() for word in ('besiktas', 'bjk')):
                 continue
@@ -553,7 +638,7 @@ def download_web_image(news, destination):
             candidate = dict(news, link=link)
             if download_article_image(candidate, destination):
                 return True
-            if tried >= 3:
+            if tried >= 6:
                 break
     except Exception as exc:
         LOG.warning('Genel web araması tamamlanamadı: %s', type(exc).__name__)
@@ -606,6 +691,8 @@ def post_news(dry_run=False):
         # Yükleme otomatik tekrarlanmaz: yanıt kaybı çift paylaşıma yol açabilir.
         media_id = publish(image_path, caption)
         save_posted_news(news['link'])
+        if news.get('_web_image_url'):
+            save_fallback_photo(news['_web_image_url'])
         if fallback_photo:
             save_fallback_photo(fallback_photo['title'])
         if player_photo['status'] == 'ready':
@@ -628,3 +715,4 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
+
