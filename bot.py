@@ -44,6 +44,12 @@ def save_posted_news(link):
         os.fsync(stream.fileno())
 
 
+def is_besiktas_news(title, summary=''):
+    """Only explicit club headlines; feed branding and caption tags are not evidence."""
+    text = clean_text(title).casefold().replace('ş', 's').replace('ı', 'i')
+    return bool(re.search(r'(?<!\w)(?:besiktas|bjk|kara\s*kartal|siyah[\s-]+beyazl[ıi]lar)(?!\w)', text))
+
+
 def get_latest_unposted_news():
     import cloudscraper
     import feedparser
@@ -64,6 +70,9 @@ def get_latest_unposted_news():
                 link = entry.get('link', '')
                 title = clean_text(entry.get('title', ''))
                 if not link.startswith(('https://', 'http://')) or not title or link in posted:
+                    continue
+                if not is_besiktas_news(title):
+                    LOG.info('Beşiktaş bağlantısı açık olmayan haber atlandı: %s', title)
                     continue
                 date = entry.get('published_parsed') or entry.get('updated_parsed')
                 stamp = tuple(date) if date else (0,) * 9
@@ -762,6 +771,9 @@ def post_news(dry_run=False):
     if not news:
         report_outcome('Paylaşılacak yeni haber bulunamadı. Instagram paylaşımı yapılmadı.')
         return
+    if not is_besiktas_news(news['title']):
+        report_outcome('Beşiktaş bağlantısı açık olmayan haber atlandı. Instagram paylaşımı yapılmadı.')
+        return
     LOG.info('Haber: %s', news['title'])
     LOG.info('Metin üretimi başladı.')
     caption = generate_caption(news['title'], news['summary'], news['link'])
@@ -829,4 +841,3 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
-

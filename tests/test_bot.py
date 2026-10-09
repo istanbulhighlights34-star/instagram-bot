@@ -42,7 +42,7 @@ class BotTests(unittest.TestCase):
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     def test_failures_do_not_record(self):
-        news = {'title': 'Başlık', 'summary': 'Özet', 'link': 'https://news.test/1'}
+        news = {'title': 'Beşiktaş haberi', 'summary': 'Özet', 'link': 'https://news.test/1'}
         for caption, image in ((None, True), ('Metin', False), ('Metin', True)):
             with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value=caption), patch('bot.generate_ai_image', return_value=image), patch('bot.download_article_image', return_value=image), patch('bot.publish', side_effect=RuntimeError('failed')) as publish, patch('bot.save_posted_news') as save:
                 if caption and image:
@@ -68,7 +68,7 @@ class BotTests(unittest.TestCase):
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     def test_success_records_after_upload(self):
-        news = {'title': 'Başlık', 'summary': 'Özet', 'link': 'https://news.test/1'}
+        news = {'title': 'Beşiktaş haberi', 'summary': 'Özet', 'link': 'https://news.test/1'}
         events = []
         with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', return_value=False), patch('bot.download_article_image', return_value=True), patch('bot.publish', side_effect=lambda *args: events.append('upload') or 123), patch('bot.save_posted_news', side_effect=lambda link: events.append('save')):
             bot.post_news()
@@ -77,7 +77,7 @@ class BotTests(unittest.TestCase):
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     def test_ai_error_uses_fallback_and_publishes(self):
-        news = {'title': 'Başlık', 'summary': 'Özet', 'link': 'https://news.test/1'}
+        news = {'title': 'Beşiktaş haberi', 'summary': 'Özet', 'link': 'https://news.test/1'}
         for error in (False, RuntimeError('429 quota')):
             with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', side_effect=error if isinstance(error, Exception) else None, return_value=False), patch('bot.download_article_image', return_value=True) as fallback, patch('bot.publish', return_value=456) as publish, patch('bot.save_posted_news') as save:
                 bot.post_news()
@@ -104,7 +104,7 @@ class BotTests(unittest.TestCase):
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     def test_edit_failure_keeps_source_photo(self):
         self.branding_patch.stop()
-        news = {'title': 'Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
+        news = {'title': 'Beşiktaş’ta Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
         def download(news, destination):
             Image.new('RGB', (400, 400), 'white').save(destination, 'JPEG')
             return True
@@ -193,7 +193,7 @@ class BotTests(unittest.TestCase):
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     def test_article_cover_is_last_resort(self):
-        news = {'title': 'Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
+        news = {'title': 'Beşiktaş’ta Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
         with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.download_article_image', return_value=True) as article, patch('bot.generate_ai_image', return_value=False) as ai, patch('bot.download_fallback_image') as fallback, patch('bot.publish', return_value=789), patch('bot.save_posted_news'):
             bot.post_news()
             article.assert_called_once()
@@ -204,7 +204,7 @@ class BotTests(unittest.TestCase):
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     def test_photo_before_local_design_order(self):
-        news = {'title': 'Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
+        news = {'title': 'Beşiktaş’ta Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
         calls = []
         with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.render_free_design', side_effect=lambda *a, **kw: calls.append('design') or False), patch('bot.download_web_image', side_effect=lambda *a: calls.append('web') or False), patch('bot.download_article_image', side_effect=lambda *a: calls.append('article') or True), patch('bot.publish', return_value=123), patch('bot.save_posted_news'):
             bot.post_news()
@@ -228,7 +228,7 @@ class ImageSearchTests(unittest.TestCase):
         page = Mock(text=markup)
         photo = Mock(); photo.__enter__ = Mock(return_value=photo); photo.__exit__ = Mock(return_value=False)
         photo.iter_content.return_value = [raw.getvalue()]
-        news = {'title': 'Miretti', 'link': 'https://news.example/original'}
+        news = {'title': 'Beşiktaş’ta Miretti', 'link': 'https://news.example/original'}
         with tempfile.TemporaryDirectory() as folder, patch.object(bot, 'FALLBACK_HISTORY', Path(folder) / 'history'), patch('bot.requests.get', side_effect=[page, photo]):
             dest = Path(folder) / 'image.jpg'
             self.assertTrue(bot.download_search_image('Fabio Miretti', news, dest))
@@ -274,3 +274,27 @@ class LoginRecoveryTests(unittest.TestCase):
                 client.set_settings.assert_not_called()
                 client.login.assert_called_once_with('account','password')
                 client.photo_upload.assert_called_once()
+
+    def test_only_explicit_besiktas_headlines_are_eligible(self):
+        for title in ("Beşiktaş'ta Miretti hazır", "BJK basketbol takımından galibiyet", "TFF'den Beşiktaş'a ceza", "Kara Kartal deplasmanda", "Siyah-beyazlılar antrenmanda"):
+            self.assertTrue(bot.is_besiktas_news(title), title)
+        for title in ("TFF'de deprem! Başkanlık iddiası", "Ümit Akdağ'ın gözü Italiano'da", "Galatasaray transferi bitirdi", "Fenerbahçe'nin rakibi belli", "Süper Lig yayın ihalesi", "Miretti Juventus'ta"):
+            self.assertFalse(bot.is_besiktas_news(title, "Beşiktaş haberleri sitesi"), title)
+
+    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
+    def test_irrelevant_news_never_generates_or_publishes(self):
+        news = {'title': "TFF'de deprem", 'summary': 'Genel federasyon haberi', 'link': 'https://news.test/tff'}
+        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption') as generate, patch('bot.publish') as publish, patch('bot.save_posted_news') as save:
+            bot.post_news()
+            generate.assert_not_called()
+            publish.assert_not_called()
+            save.assert_not_called()
+
+    def test_feed_skips_newer_irrelevant_story(self):
+        entries = [
+            {'title': "TFF'de deprem", 'link': 'https://news.test/tff', 'published_parsed': (2026,10,10,12,0,0,0,0,0)},
+            {'title': 'Beşiktaş antrenmanda', 'link': 'https://news.test/bjk', 'published_parsed': (2026,10,10,11,0,0,0,0,0)}
+        ]
+        scraper = Mock()
+        with patch('cloudscraper.create_scraper', return_value=scraper), patch('feedparser.parse', return_value=Mock(entries=entries)), patch('bot.load_posted_news', return_value=set()):
+            self.assertEqual(bot.get_latest_unposted_news()['link'], 'https://news.test/bjk')
