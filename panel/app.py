@@ -188,11 +188,12 @@ def create_app():
     def delete(job_id):
         store = Store()
         item = store.get(job_id)
-        if item['status'] not in ('ready', 'published', 'failed'):
+        if item['status'] not in ('ready', 'published', 'failed', 'queued'):
             abort(409)
-        if store.change(job_id, item['status'], status='deleting'):
-            store.delete(job_id)
-            store.change(job_id, 'deleting', status='deleted')
+        if not store.change(job_id, item['status'], status='deleting'):
+            abort(409)
+        store.delete(job_id)
+        store.change(job_id, 'deleting', status='deleted')
         return redirect(url_for('index'))
 
     @app.errorhandler(413)

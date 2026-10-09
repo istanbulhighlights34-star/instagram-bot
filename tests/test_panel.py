@@ -46,7 +46,8 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(self.client.get('/posts/'+job_id).status_code,200)
         for _ in range(2): self.client.post('/posts/'+job_id+'/publish',data={'csrf':self.token()})
         self.assertEqual(self.store.get(job_id)['status'],'queued');self.assertEqual(len(self.store.jobs),1)
-        self.assertEqual(self.client.post('/posts/'+job_id+'/delete',data={'csrf':self.token()}).status_code,409)
+        self.assertEqual(self.client.post('/posts/'+job_id+'/delete',data={'csrf':self.token()}).status_code,302)
+        self.assertEqual(self.store.get(job_id)['status'],'deleted')
     def test_invalid_upload_is_not_saved(self):
         self.login();response=self.client.post('/preview',data={'csrf':self.token(),'caption':'x','photo':(io.BytesIO(b'not an image'),'bad.jpg')})
         self.assertEqual(response.status_code,400);self.assertFalse(self.store.jobs)
@@ -68,3 +69,13 @@ class PanelTests(unittest.TestCase):
     def test_delete_preview_does_not_publish(self):
         job_id=self.prepare();self.client.post('/posts/'+job_id+'/delete',data={'csrf':self.token()})
         self.assertEqual(self.store.get(job_id)['status'],'deleted');self.assertNotIn(job_id,self.store.images)
+
+    def test_uploading_cannot_be_deleted(self):
+        job_id=self.prepare();self.store.change(job_id,'ready',status='uploading')
+        response=self.client.post('/posts/'+job_id+'/delete',data={'csrf':self.token()})
+        self.assertEqual(response.status_code,409)
+        self.assertIn(job_id,self.store.images)
+
+    def test_deleted_posts_hidden_from_gallery(self):
+        job_id=self.prepare();self.store.change(job_id,'ready',status='deleted')
+        self.assertNotIn(('/posts/'+job_id).encode(),self.client.get('/').data)
