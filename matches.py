@@ -306,10 +306,15 @@ def choose_motto(away, state):
     return min(candidates, key=order)
 
 
-def run(matches, now, dry_run=False):
+def run(matches, now, dry_run=False, publish_match=None):
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
     for match in matches:
         kind = phase(match,now)
+        if publish_match is not None:
+            if (match['id'] != publish_match or not match['scheduled']
+                    or not now < match['start'] <= now+timedelta(hours=24)):
+                continue
+            kind = 'pre'
         key = match['id']+':'+str(kind)
         if not kind or key in state:
             continue
@@ -347,6 +352,15 @@ def run(matches, now, dry_run=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run',action='store_true')
+    parser.add_argument('--publish-match',help='Explicitly publish a confirmed upcoming match within 24 hours')
     args = parser.parse_args()
     now = datetime.now(UTC)
-    run(football(now)+basketball(now),now,args.dry_run)
+    if args.publish_match:
+        candidates = parse_basketball_fixture(html_page(BASKET_URL))
+        chosen = next((m for m in candidates if m['id']==args.publish_match),None)
+        if chosen is None or not chosen['scheduled'] or not now < chosen['start'] <= now+timedelta(hours=24):
+            raise RuntimeError('İstenen maç güncel, doğrulanmış yaklaşan bir maç değil.')
+        enrich_european_logos(chosen,now)
+        run([chosen],now,args.dry_run,args.publish_match)
+    else:
+        run(football(now)+basketball(now),now,args.dry_run)
