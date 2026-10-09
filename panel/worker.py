@@ -44,6 +44,8 @@ def run(store=None, client_factory=Client):
         bucket = store.call('GET', '/storage/v1/bucket/kartal-panel').json()
         if bucket.get('public') is not False:
             raise RuntimeError('Panel dosya alanı özel olmalı.')
+        if os.getenv('PREPARE_PREVIEWS') == 'true':
+            prepare_next_video(store)
         print('GitHub özel panel bağlantısı doğrulandı. Instagram paylaşımı yapılmadı.')
         return
     if hasattr(store, 'metadata'):
