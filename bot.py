@@ -8,6 +8,8 @@ import logging
 import os
 from pathlib import Path
 import re
+import random
+from urllib.parse import quote
 import tempfile
 import time
 
@@ -192,32 +194,61 @@ def generate_ai_image(title, destination):
 
 
 
-FALLBACK_SOURCE = 'https://commons.wikimedia.org/wiki/File:Vodafone_Park,_Istanbul_(from_outside).jpg'
-FALLBACK_URL = 'https://commons.wikimedia.org/wiki/Special:FilePath/Vodafone_Park,_Istanbul_(from_outside).jpg'
+
+FALLBACK_HISTORY = Path('kullanilan_yedek_gorseller.txt')
+# Distinct photos; no crops of the same picture.
+FALLBACK_PHOTOS = [
+    'Vodafone Park, Istanbul (from outside).jpg',
+    'Bjk Stadyum.jpg',
+    'Inonu stadium.jpg',
+    'Beşiktaş footballteam photo (November 2017).jpg',
+]
+
+
+def fallback_candidates():
+    history = FALLBACK_HISTORY.read_text(encoding='utf-8').splitlines() if FALLBACK_HISTORY.exists() else []
+    unused = [title for title in FALLBACK_PHOTOS if title not in history]
+    if not unused:
+        # New cycle: avoid repeating the last picture at the cycle boundary.
+        unused = [title for title in FALLBACK_PHOTOS if not history or title != history[-1]]
+    random.shuffle(unused)
+    return unused
+
+
+def save_fallback_photo(title):
+    history = FALLBACK_HISTORY.read_text(encoding='utf-8').splitlines() if FALLBACK_HISTORY.exists() else []
+    if set(FALLBACK_PHOTOS).issubset(history):
+        history = history[-1:]
+    history.append(title)
+    temporary = FALLBACK_HISTORY.with_suffix('.tmp')
+    temporary.write_text('\n'.join(history) + '\n', encoding='utf-8')
+    temporary.replace(FALLBACK_HISTORY)
 
 
 def download_fallback_image(destination):
-    """Verified CC0 Beşiktaş stadium photo; decoded before any upload."""
+    """Try unused verified CC0/public-domain photos, recording only after upload."""
     from PIL import ImageOps
-    try:
-        response = requests.get(FALLBACK_URL, timeout=(10, 25), stream=True,
-                                headers={'User-Agent': 'BesiktasNewsBot/1.0'})
-        with response:
-            response.raise_for_status()
-            raw = bytearray()
-            for chunk in response.iter_content(65536):
-                raw.extend(chunk)
-                if len(raw) > 10 * 1024 * 1024:
-                    raise ValueError('Görsel boyutu sınırı aşıldı.')
-        with Image.open(io.BytesIO(raw)) as picture:
-            picture = ImageOps.exif_transpose(picture).convert('RGB')
-            ImageOps.pad(picture, (1080, 1080), color='black').save(
-                destination, 'JPEG', quality=95)
-        LOG.info('B planı: CC0 Beşiktaş stadyum fotoğrafı hazır.')
-        return True
-    except Exception as exc:
-        LOG.warning('B planı fotoğrafı indirilemedi: %s', type(exc).__name__)
-        return False
+    for title in fallback_candidates():
+        try:
+            url = 'https://commons.wikimedia.org/wiki/Special:FilePath/' + quote(title, safe='')
+            response = requests.get(url, timeout=(5, 12), stream=True,
+                                    headers={'User-Agent': 'BesiktasNewsBot/1.0'})
+            with response:
+                response.raise_for_status()
+                raw = bytearray()
+                for chunk in response.iter_content(65536):
+                    raw.extend(chunk)
+                    if len(raw) > 10 * 1024 * 1024:
+                        raise ValueError('Görsel boyutu sınırı aşıldı.')
+            with Image.open(io.BytesIO(raw)) as picture:
+                picture = ImageOps.exif_transpose(picture).convert('RGB')
+                ImageOps.pad(picture, (1080, 1080), color='black').save(
+                    destination, 'JPEG', quality=95)
+            LOG.info('B planı fotoğrafı: %s', title)
+            return {'title': title, 'source': 'https://commons.wikimedia.org/wiki/File:' + quote(title.replace(' ', '_'), safe='')}
+        except Exception as exc:
+            LOG.warning('Yedek fotoğraf alınamadı: %s (%s)', title, type(exc).__name__)
+    return None
 
 
 def publish(image_path, caption):
@@ -269,14 +300,16 @@ def post_news(dry_run=False):
         except Exception as exc:
             LOG.warning('Yapay zekâ görsel hatası: %s; B planına geçiliyor.', type(exc).__name__)
             ai_image = False
+        fallback_photo = None
         if ai_image:
             image_credit = '\nGörsel: yapay zekâ ile üretilmiştir.'
         else:
             LOG.info('B planına geçiliyor: Beşiktaş stadyum fotoğrafı.')
-            if not download_fallback_image(image_path):
+            fallback_photo = download_fallback_image(image_path)
+            if not fallback_photo:
                 report_outcome('Yapay zekâ ve yedek fotoğraf alınamadı; yüklenebilecek görsel yok. Haber kaydedilmedi.')
                 return
-            image_credit = '\nTemsili arşiv fotoğrafı: Olos88 / Wikimedia Commons (CC0).\n' + FALLBACK_SOURCE
+            image_credit = '\nTemsili arşiv fotoğrafı / Wikimedia Commons:\n' + fallback_photo['source']
         caption = caption[:2200 - len(image_credit)] + image_credit
         if dry_run:
             import shutil
@@ -289,6 +322,8 @@ def post_news(dry_run=False):
         # Yükleme otomatik tekrarlanmaz: yanıt kaybı çift paylaşıma yol açabilir.
         media_id = publish(image_path, caption)
         save_posted_news(news['link'])
+        if fallback_photo:
+            save_fallback_photo(fallback_photo['title'])
         report_outcome(f'Instagram paylaşımı doğrulandı; medya kimliği: {media_id}. Haber geçmişe kaydedildi.')
 
 
