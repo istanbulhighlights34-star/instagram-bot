@@ -1,28 +1,28 @@
 # Beşiktaş Instagram haber botu
 
-En yeni paylaşılmamış RSS haberini seçer, metni yeniden yazar ve özgün temsili görsel üretir. Geçici API hatalarında ve boş yanıtlarda üç deneme yapılır. Kalıcı hatalarda tekrar denenmez. Metin oluşmazsa haber kaydedilmez; sonraki çalışmada hâlâ en yeni aday ise tekrar denenir. Görsel üretimi başarısız olursa CC0 lisanslı Beşiktaş stadyum fotoğrafı indirilir ve paylaşım sürdürülür. Hem yapay zekâ hem yedek fotoğraf başarısızsa haber kaydedilmez.
+En yeni paylaşılmamış RSS haberini seçer ve metni yeniden yazar. Metin üretilemezse haber kaydedilmez; sonraki çalışmada yeniden aday olabilir.
 
-GitHub Secrets: GEMINI_API_KEY, IG_USERNAME, IG_PASSWORD; isteğe bağlı IG_SESSION (instagrapi oturum JSON verisi). Oturum yüklendikten sonra giriş doğrulanır. Instagram ek doğrulama isteyebilir. Şifreleri dosyalara yazmayın.
+## Görsel seçimi
 
-Model ayarları bot.yml dosyasında açıkça sabitlenmiştir; eski GitHub Variables değerleri kullanılmaz. Güncel modeller gemini-3.8-flash ve gemini-nano-banana-2.1. Hesabın model erişimi, kotası ve görsel üretim faturalandırması gerçek önizleme çalışmasında doğrulanmalıdır.
+1. Habere uygun yapay zekâ görseli: toplam en fazla 180 saniye. Hata veya süre aşımında sonraki kaynağa geçilir.
+2. İsimle eşleşen oyuncu fotoğraf havuzu; ardından Bing web aramasındaki farklı sitelerden oyuncu ve Beşiktaş konusuna uygun sayfaların görselleri. Site listesi Wikimedia ile sınırlandırılmaz. En fazla üç uygun sonuç sayfası denenir; sonuç alınamazsa Commons araması da denenir.
+3. Son seçenek olarak aynı haberin kaynak sayfasındaki kapak fotoğrafı.
 
-Actions → Instagram AI Bot → Run workflow: Önizleme varsayılan olarak açık. Üretim başarılı olursa haber-onizleme çıktısında fotoğraf ve metin bulunur; Instagram'a bağlanılmaz ve geçmiş değiştirilmez. Önizleme de Google API kullanımı oluşturur. Canlı paylaşım için önizlemeyi kapatın. Program Türkiye saatine göre 11:00, 15:00, 19:00, 22:00; GitHub çalışmaları geciktirebilir.
+Arama, herkese açık ve arama motorunun indekslediği sayfalarla sınırlıdır. Sayfa başlığı ve açıklaması konu eşleşmesi için kullanılır; fotoğraftaki kişinin kimliği veya forması otomatik olarak kesin doğrulanmaz. Bütün kaynaklar başarısızsa haber kaydedilmez.
+
+Oyuncu havuzu media/players.json dosyasında tanımlanır. Kullanılan havuz fotoğrafları yalnızca başarılı paylaşım sonrası geçmişe kaydedilir. Önizleme geçmişi tüketmez.
+
+## Metin ve paylaşım
+
+Açıklamada kaynak bağlantısı ve arşiv fotoğrafı satırı bulunmaz. Etiketler önce #Beşiktaş #BJK #KaraKartal, ardından haberde geçen kişilerle ilgili etiketlerdir.
+
+GitHub Secrets: GEMINI_API_KEY, IG_USERNAME, IG_PASSWORD; isteğe bağlı IG_SESSION (instagrapi oturum JSON verisi).
+
+Actions → Instagram AI Bot → Run workflow: Önizleme varsayılan olarak açık. Başarılı önizlemenin haber-onizleme çıktısında fotoğraf ve metin bulunur; Instagram'a bağlanılmaz ve geçmiş değiştirilmez. Canlı paylaşım için önizlemeyi kapatın.
+
+Program Türkiye saatine göre 11:00, 15:00, 19:00, 22:00. GitHub çalışmaları geciktirebilir. Bot adımının sınırı 12 dakika, post işinin sınırı 15 dakikadır; görsel üretiminin kendi sınırı 3 dakikadır.
+
+Paylaşım geçmişi Instagram yüklemesi doğrulanınca kaydedilir. Yükleme otomatik tekrarlanmaz.
 
 Test: python -m unittest discover -s tests -v
 Gerçek API önizlemesi: python bot.py --dry-run
-
-Paylaşım geçmişi yalnızca Instagram yüklemesi doğrulanınca kaydedilir. Yanıt kaybı veya geçmişin GitHub'a kaydedilememesi tekrar paylaşım riski oluşturur. Başarısız çalışmayı yeniden başlatmadan önce Instagram'ı kontrol edin. Yükleme otomatik tekrarlanmaz.
-
-Metni yeniden yazmak veya yapay zekâyla görsel üretmek telif garantisi sağlamaz. Kaynak bağlantısı eklenir ve görseller temsili olarak işaretlenir.
-
-
-9 Ekim 2026 güncellemesi: Metin Gemini 3.8 Flash, görsel Nano Banana 2.1; generateContent v1 API ve responseFormat görsel ayarları. Python 3.14; checkout v7.0.1, setup-python v7.0.0, upload-artifact v7.0.2. Ubuntu 24.04 açıkça seçilir. Çalışma özetinde üretim/paylaşım sonucu ayrı olarak gösterilir.
-
-
-B planı: 429 kota hatasında doğrudan yedek fotoğrafa geçilir. Diğer görsel hatalarında en fazla üç deneme yapılır; başarısızlık veya istisna sonrası yedek fotoğraf kullanılır. Kaynak: https://commons.wikimedia.org/wiki/File:Vodafone_Park,_Istanbul_(from_outside).jpg — Olos88, CC0. Paylaşım metninde temsili arşiv fotoğrafı olduğu ve kaynak belirtilir. Yedek fotoğraf indirilemiyorsa görselsiz Instagram fotoğraf paylaşımı yapılamaz; haber kaydedilmez. Önizleme modu Instagram'a paylaşım yapmaz.
-
-
-Yedek görseller artık dört farklı CC0/kamu malı stadyum ve takım arşiv fotoğrafından seçilir. Kullanılan görseller kullanilan_yedek_gorseller.txt içinde saklanır; havuz tüketilmeden aynı fotoğraf seçilmez. Havuz tükendiğinde yeni döngü başlar, son fotoğraf arka arkaya tekrar edilmez. Görsel indirilemezse kullanılmamış başka fotoğraf denenir. Önizleme ve başarısız Instagram yüklemesi görsel geçmişini tüketmez. Kaynak bağlantısı her görsele göre değişir; fotoğraflar güncel olay fotoğrafı olarak sunulmaz.
-
-
-Güncel görsel sırası (önceki öncelik açıklamalarının yerine): 1) Habere göre AI görsel üretimi, en fazla 45 saniye. 2) İsimle eşleşen fotoğraf havuzu ve Wikimedia Commons üzerinde kişi/Beşiktaş eşleşmeli internet araması (CC0/kamu malı). 3) Aynı haberin og:image/twitter:image kapak fotoğrafı. Rastgele stadyum fotoğrafı bu akışta artık kullanılmaz. Tüm kaynaklar başarısızsa haber kaydedilmez. Haber sitesi görselinin internette bulunması kullanım lisansı garantisi değildir.
