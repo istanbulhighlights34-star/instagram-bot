@@ -136,7 +136,7 @@ def generate_ai_image(title, destination):
     )
     data = gemini_request(os.getenv('GEMINI_IMAGE_MODEL', 'gemini-nano-banana-2.1'), {
         'contents': [{'parts': [{'text': prompt}]}],
-        'generationConfig': {'responseModalities': ['TEXT', 'IMAGE'], 'responseFormat': {'image': {'aspectRatio': '1:1', 'imageSize': '1K'}}},
+        'generationConfig': {'responseModalities': ['IMAGE']},
     }, image=True)
     for part in response_parts(data):
         inline = part.get('inlineData', {})
