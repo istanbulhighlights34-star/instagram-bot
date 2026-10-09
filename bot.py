@@ -5,6 +5,7 @@ import html
 import io
 import json
 import logging
+import multiprocessing
 import os
 from pathlib import Path
 import re
@@ -167,7 +168,7 @@ def generate_caption(title, summary, link):
     return text[:max(0, 2200 - len(suffix))] + suffix if len(suffix) < 2200 else None
 
 
-def generate_ai_image(title, destination):
+def generate_ai_image_unbounded(title, destination):
     prompt = (
         'Create an original editorial sports illustration inspired by this Turkish news title: '
         + title + '. Black and white palette with subtle red accents, dramatic stadium lighting. '
@@ -193,6 +194,40 @@ def generate_ai_image(title, destination):
     return False
 
 
+
+
+def _image_worker(title, destination, results):
+    try:
+        results.put(generate_ai_image_unbounded(title, destination))
+    except Exception as exc:
+        LOG.warning('Görsel işlemi başarısız: %s', type(exc).__name__)
+        results.put(False)
+
+
+def generate_ai_image(title, destination):
+    # A network timeout cannot bound SDK backoff; isolate the entire operation.
+    context = multiprocessing.get_context('fork')
+    results = context.Queue()
+    worker = context.Process(target=_image_worker, args=(title, destination, results))
+    worker.start()
+    try:
+        worker.join(timeout=45)
+        if worker.is_alive():
+            LOG.warning('Görsel üretimi 45 saniyeyi aştı; B planına geçiliyor.')
+            worker.terminate()
+            worker.join(timeout=3)
+            if worker.is_alive():
+                worker.kill()
+                worker.join(timeout=3)
+            Path(destination).unlink(missing_ok=True)
+            return False
+        try:
+            return bool(results.get(timeout=1)) and Path(destination).is_file()
+        except Exception:
+            return False
+    finally:
+        results.close()
+        worker.close()
 
 
 FALLBACK_HISTORY = Path('kullanilan_yedek_gorseller.txt')
