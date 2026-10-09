@@ -32,7 +32,7 @@ class BotTests(unittest.TestCase):
     def test_failures_do_not_record(self):
         news = {'title': 'Başlık', 'summary': 'Özet', 'link': 'https://news.test/1'}
         for caption, image in ((None, True), ('Metin', False), ('Metin', True)):
-            with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value=caption), patch('bot.generate_ai_image', return_value=image), patch('bot.publish', side_effect=RuntimeError('failed')) as publish, patch('bot.save_posted_news') as save:
+            with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value=caption), patch('bot.generate_ai_image', return_value=image), patch('bot.download_fallback_image', return_value=False), patch('bot.publish', side_effect=RuntimeError('failed')) as publish, patch('bot.save_posted_news') as save:
                 if caption and image:
                     with self.assertRaises(RuntimeError):
                         bot.post_news()
@@ -61,6 +61,19 @@ class BotTests(unittest.TestCase):
         with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', return_value=True), patch('bot.publish', side_effect=lambda *args: events.append('upload') or 123), patch('bot.save_posted_news', side_effect=lambda link: events.append('save')):
             bot.post_news()
         self.assertEqual(events, ['upload', 'save'])
+
+
+    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
+    def test_ai_error_uses_fallback_and_publishes(self):
+        news = {'title': 'Başlık', 'summary': 'Özet', 'link': 'https://news.test/1'}
+        for error in (False, RuntimeError('429 quota')):
+            with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', side_effect=error if isinstance(error, Exception) else None, return_value=False), patch('bot.download_fallback_image', return_value=True) as fallback, patch('bot.publish', return_value=456) as publish, patch('bot.save_posted_news') as save:
+                bot.post_news()
+                fallback.assert_called_once()
+                publish.assert_called_once()
+                self.assertIn('CC0', publish.call_args.args[1])
+                self.assertNotIn('yapay zekâ ile üretilmiştir', publish.call_args.args[1])
+                save.assert_called_once_with(news['link'])
 
 if __name__ == '__main__':
     unittest.main()
