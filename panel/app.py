@@ -8,6 +8,7 @@ import secrets
 import tempfile
 import time
 import uuid
+import base64
 from collections import defaultdict
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, session, url_for
 from PIL import Image, UnidentifiedImageError
@@ -18,7 +19,7 @@ from panel.store import Store
 def create_app():
     app = Flask(__name__)
     app.config.update(SECRET_KEY=os.environ.get('PANEL_SESSION_SECRET'),
-                      MAX_CONTENT_LENGTH=16 * 1024 * 1024,
+                      MAX_CONTENT_LENGTH=46 * 1024 * 1024,
                       SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SECURE=True,
                       SESSION_COOKIE_SAMESITE='Strict', PERMANENT_SESSION_LIFETIME=3600)
     attempts = defaultdict(list)
@@ -61,6 +62,11 @@ def create_app():
     @app.get('/health')
     def health():
         return jsonify(status='ok')
+
+    @app.get('/brand-logo')
+    def brand_logo():
+        logo = Path(__file__).resolve().parents[1] / 'media' / 'kartalpenche1903-logo.b64'
+        return send_file(io.BytesIO(base64.b64decode(logo.read_text())), mimetype='image/png')
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
@@ -106,6 +112,23 @@ def create_app():
         upload = request.files.get('photo')
         if not upload:
             return render_template('error.html', message='Bir fotoğraf seçin.'), 400
+        kind = request.form.get('kind', 'photo')
+        if kind not in ('photo','video','reel'):
+            abort(400)
+        if kind in ('video','reel'):
+            raw = upload.read(45 * 1024 * 1024 + 1)
+            if len(raw) > 45 * 1024 * 1024 or upload.filename.rsplit('.',1)[-1].lower() not in ('mp4','mov'):
+                return render_template('error.html', message='MP4 veya MOV video seçin; en fazla 45 MB ve 60 saniye olabilir.'),400
+            store = Store()
+            job_id = str(uuid.uuid4())
+            store.upload_video(job_id, raw, raw=True)
+            try:
+                store.save_metadata(job_id, kind, 'raw')
+                store.insert({'id':job_id,'caption':caption,'status':'processing'})
+            except Exception:
+                store.delete(job_id)
+                raise
+            return redirect(url_for('post',job_id=job_id))
         raw = upload.read(15 * 1024 * 1024 + 1)
         if len(raw) > 15 * 1024 * 1024:
             return render_template('error.html', message='Fotoğraf en fazla 15 MB olabilir.'), 400
@@ -140,7 +163,11 @@ def create_app():
     @app.get('/posts/<job_id>/image')
     @protected
     def image(job_id):
-        Store().get(job_id)
+        item = Store().get(job_id)
+        if item.get('kind') in ('video','reel'):
+            if item['phase'] != 'prepared':
+                abort(409)
+            return send_file(io.BytesIO(Store().download_video(job_id)),mimetype='video/mp4',conditional=True)
         return send_file(io.BytesIO(Store().download(job_id)), mimetype='image/jpeg')
 
     @app.get('/posts/<job_id>/status')

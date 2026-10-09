@@ -1,6 +1,6 @@
 # Kartalpenche özel paylaşım paneli
 
-İlk sürüm: özel şifreli giriş, JPEG/PNG/WebP fotoğraf (15 MB), mevcut botla aynı kare çerçeve/logo/pençe, 2200 karakter açıklama, önizleme, kullanıcının açık yayınlama düğmesi, durum ve doğrulanmış Instagram bağlantısı. Video/Reels/hikâye bu sürümde yoktur.
+Destek: özel şifreli giriş, JPEG/PNG/WebP fotoğraf (15 MB), mevcut botla aynı kare çerçeve/logo/pençe, 2200 karakter açıklama, önizleme, kullanıcının açık yayınlama düğmesi, durum ve doğrulanmış Instagram bağlantısı. Video gönderileri (720×900) ve Reels (720×1280): MP4/MOV, 1–60 saniye, 45 MB. Bot önce sesi koruyarak çerçeve ve filigranı videoya işler. Önizleme hazır olduktan sonra kullanıcı ayrıca yayınlama düğmesine basar. Hikâye desteği henüz yoktur.
 
 ## Bağlantı
 
@@ -18,3 +18,5 @@
 Instagram girişinden önce hata alırsa `failed`. Yüklemeye başlandıktan sonra hata olursa `uncertain`; otomatik yeniden deneme yapılmaz. İşlem kesilirse `processing/uploading` olarak kalabilir; önce Instagram kontrol edilmeli. Aynı düğmeye tekrar basılması ikinci yükleme başlatmaz. Dosyalar ücretsiz 1 GB alanı doldurabilir; panelde silme işlemiyle terminal kayıtlar temizlenebilir. Yayımlanmamış sıradaki kayıtlar silinemez.
 
 Gizli Supabase verisi ve fotoğraf GitHub deposuna/loglara/artifactlere yazılmaz. Paylaşılan fotoğraf Instagram'da normal olarak görünür. Render yeniden başlasa da kuyruğun durumu Supabase'de korunur.
+
+Video türü ve hazırlama aşaması özel bucket içindeki UUID.json dosyasında saklanır; ek veritabanı migration gerekmez. Ham videolar processing durumunda alınır, atomik olarak uploading durumuna geçirilip hazırlanır ve ready durumunda kullanıcı onayı beklenir. İşlenmiş MP4 hazır olunca ham dosya silinir. Yükleme yanıtı belirsizse tekrar gönderilmez.

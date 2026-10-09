@@ -5,6 +5,31 @@ import tempfile
 from instagrapi import Client
 import json
 from panel.store import Store
+from panel.video import prepare_video
+
+
+def prepare_next_video(store):
+    for job in store.rows(status='eq.processing', order='created_at.asc', limit='10'):
+        meta = store.metadata(job['id'])
+        if meta['kind'] not in ('video','reel') or meta['phase'] != 'raw':
+            continue
+        job_id = job['id']
+        if not store.change(job_id, 'processing', status='uploading'):
+            continue
+        try:
+            with tempfile.TemporaryDirectory(prefix='kartal-video-') as folder:
+                source, final = Path(folder)/'source.mp4', Path(folder)/'branded.mp4'
+                source.write_bytes(store.download_video(job_id, raw=True))
+                prepare_video(source, final, meta['kind'])
+                store.upload_video(job_id, final.read_bytes())
+                store.save_metadata(job_id, meta['kind'], 'prepared')
+                store.change(job_id, 'uploading', status='ready')
+                store.remove_raw_video(job_id)
+            print('Filigranlı video önizlemesi hazır. Instagram paylaşımı yapılmadı.')
+        except Exception as exc:
+            store.change(job_id,'uploading',status='failed',error='Video hazırlanamadı. MP4/MOV, 1–60 saniye ve 45 MB sınırlarını kontrol edin.')
+            print('Video önizleme hatası: '+type(exc).__name__)
+        return
 
 
 def run(store=None, client_factory=Client):
@@ -21,6 +46,8 @@ def run(store=None, client_factory=Client):
             raise RuntimeError('Panel dosya alanı özel olmalı.')
         print('GitHub özel panel bağlantısı doğrulandı. Instagram paylaşımı yapılmadı.')
         return
+    if hasattr(store, 'metadata'):
+        prepare_next_video(store)
     candidates = store.rows(status='eq.queued', order='created_at.asc', limit='1')
     if not candidates:
         print('Onaylanmış panel gönderisi yok.')
@@ -31,9 +58,13 @@ def run(store=None, client_factory=Client):
         return
     uploading = False
     try:
-        content = store.download(job_id)
+        meta = store.metadata(job_id) if hasattr(store,'metadata') else {'kind':'photo','phase':'prepared'}
+        if meta['phase'] != 'prepared':
+            raise ValueError('Önizleme tamamlanmalı.')
+        video = meta['kind'] in ('video','reel')
+        content = store.download_video(job_id) if video else store.download(job_id)
         with tempfile.TemporaryDirectory(prefix='kartal-panel-') as folder:
-            image = Path(folder) / 'post.jpg'
+            image = Path(folder) / ('post.mp4' if video else 'post.jpg')
             image.write_bytes(content)
             client = client_factory()
             settings = json.loads(os.environ['IG_SESSION'])
@@ -44,7 +75,12 @@ def run(store=None, client_factory=Client):
             if not store.change(job_id, 'processing', status='uploading'):
                 return
             uploading = True
-            media = client.photo_upload(str(image), job['caption'])
+            if meta['kind'] == 'reel':
+                media = client.clip_upload(image, job['caption'])
+            elif meta['kind'] == 'video':
+                media = client.video_upload(image, job['caption'])
+            else:
+                media = client.photo_upload(str(image), job['caption'])
             if not media or not getattr(media, 'pk', None) or not getattr(media, 'code', None):
                 raise RuntimeError('Instagram sonucu doğrulanamadı.')
             store.change(job_id, 'uploading', status='published', media_id=str(media.pk),
