@@ -41,7 +41,7 @@ class BotTests(unittest.TestCase):
     def test_failures_do_not_record(self):
         news = {'title': 'Başlık', 'summary': 'Özet', 'link': 'https://news.test/1'}
         for caption, image in ((None, True), ('Metin', False), ('Metin', True)):
-            with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value=caption), patch('bot.generate_ai_image', return_value=image), patch('bot.download_article_image', return_value=False), patch('bot.publish', side_effect=RuntimeError('failed')) as publish, patch('bot.save_posted_news') as save:
+            with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value=caption), patch('bot.generate_ai_image', return_value=image), patch('bot.download_article_image', return_value=image), patch('bot.publish', side_effect=RuntimeError('failed')) as publish, patch('bot.save_posted_news') as save:
                 if caption and image:
                     with self.assertRaises(RuntimeError):
                         bot.post_news()
@@ -67,7 +67,7 @@ class BotTests(unittest.TestCase):
     def test_success_records_after_upload(self):
         news = {'title': 'Başlık', 'summary': 'Özet', 'link': 'https://news.test/1'}
         events = []
-        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', return_value=True), patch('bot.publish', side_effect=lambda *args: events.append('upload') or 123), patch('bot.save_posted_news', side_effect=lambda link: events.append('save')):
+        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', return_value=False), patch('bot.download_article_image', return_value=True), patch('bot.publish', side_effect=lambda *args: events.append('upload') or 123), patch('bot.save_posted_news', side_effect=lambda link: events.append('save')):
             bot.post_news()
         self.assertEqual(events, ['upload', 'save'])
 
@@ -84,6 +84,33 @@ class BotTests(unittest.TestCase):
                 self.assertNotIn('yapay zekâ ile üretilmiştir', publish.call_args.args[1])
                 save.assert_called_once_with(news['link'])
 
+
+    @patch('bot.gemini_request')
+    def test_edit_sends_reference_and_preserves_original(self, request):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'source.jpg'
+            Image.new('RGB', (400, 400), 'white').save(source, 'JPEG')
+            original = source.read_bytes()
+            request.return_value = None
+            self.assertFalse(bot.generate_ai_image_unbounded('Miretti', Path(folder) / 'design.jpg', source))
+            parts = request.call_args.args[1]['contents'][0]['parts']
+            self.assertEqual(base64.b64decode(parts[1]['inlineData']['data']), original)
+            self.assertIn('Preserve', parts[0]['text'])
+            self.assertEqual(source.read_bytes(), original)
+
+    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
+    def test_edit_failure_keeps_source_photo(self):
+        news = {'title': 'Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
+        def download(news, destination):
+            Image.new('RGB', (400, 400), 'white').save(destination, 'JPEG')
+            return True
+        def publish(destination, caption):
+            self.assertEqual(Path(destination).name, 'haber.jpg')
+            self.assertTrue(Path(destination).is_file())
+            return 123
+        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.download_article_image', side_effect=download), patch('bot.generate_ai_image', return_value=False), patch('bot.publish', side_effect=publish) as upload, patch('bot.save_posted_news'):
+            bot.post_news()
+            upload.assert_called_once()
 
     def test_rotation_excludes_used_and_last_at_boundary(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(bot, 'FALLBACK_HISTORY', Path(folder) / 'history.txt'):
@@ -154,12 +181,12 @@ class BotTests(unittest.TestCase):
 
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
-    def test_exact_ai_web_article_order(self):
+    def test_photo_before_ai_order(self):
         news = {'title': 'Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
         calls = []
-        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', side_effect=lambda *a: calls.append('ai') or False), patch('bot.download_web_image', side_effect=lambda *a: calls.append('web') or False), patch('bot.download_article_image', side_effect=lambda *a: calls.append('article') or True), patch('bot.publish', return_value=123), patch('bot.save_posted_news'):
+        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', side_effect=lambda *a, **kw: calls.append('ai') or False), patch('bot.download_web_image', side_effect=lambda *a: calls.append('web') or False), patch('bot.download_article_image', side_effect=lambda *a: calls.append('article') or True), patch('bot.publish', return_value=123), patch('bot.save_posted_news'):
             bot.post_news()
-        self.assertEqual(calls, ['ai', 'web', 'article'])
+        self.assertEqual(calls, ['web', 'article', 'ai'])
 
 
 class ImageSearchTests(unittest.TestCase):
