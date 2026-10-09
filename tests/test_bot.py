@@ -19,6 +19,9 @@ class BotTests(unittest.TestCase):
         self.article_patch = patch('bot.download_article_image', return_value=False)
         self.article_patch.start()
         self.addCleanup(self.article_patch.stop)
+        self.branding_patch = patch('bot.apply_claw_branding', return_value=True)
+        self.branding_patch.start()
+        self.addCleanup(self.branding_patch.stop)
         self.web_patch = patch('bot.download_web_image', return_value=False)
         self.web_patch.start()
         self.addCleanup(self.web_patch.stop)
@@ -100,12 +103,13 @@ class BotTests(unittest.TestCase):
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     def test_edit_failure_keeps_source_photo(self):
+        self.branding_patch.stop()
         news = {'title': 'Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
         def download(news, destination):
             Image.new('RGB', (400, 400), 'white').save(destination, 'JPEG')
             return True
         def publish(destination, caption):
-            self.assertEqual(Path(destination).name, 'haber.jpg')
+            self.assertEqual(Path(destination).name, 'filigranli.jpg')
             self.assertTrue(Path(destination).is_file())
             return 123
         with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.download_article_image', side_effect=download), patch('bot.render_free_design', return_value=False), patch('bot.generate_ai_image') as paid, patch('bot.publish', side_effect=publish) as upload, patch('bot.save_posted_news'):
@@ -224,6 +228,20 @@ class ImageSearchTests(unittest.TestCase):
             self.assertTrue(bot.download_search_image('Fabio Miretti', news, dest))
             self.assertEqual(news['_web_image_url'], data['murl'])
             self.assertTrue(dest.exists())
+
+    def test_claw_alpha_and_photo_branding(self):
+        mark = bot.claw_mark((100, 100), .2)
+        self.assertLessEqual(mark.getchannel('A').getextrema()[1], 51)
+        self.assertEqual(mark.getchannel('A').getextrema()[0], 0)
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'original.png'; dest = Path(folder) / 'branded.jpg'
+            Image.new('RGB', (1080, 1080), 'black').save(source)
+            bot.apply_claw_branding(source, dest)
+            with Image.open(dest) as image:
+                self.assertEqual(image.size, (1080, 1080))
+                self.assertIsNotNone(image.crop((940, 0, 1080, 110)).getbbox())
+                self.assertIsNotNone(image.crop((790, 540, 1080, 850)).getbbox())
+                self.assertEqual(image.getpixel((400, 400)), (0, 0, 0))
 
     def test_private_image_urls_rejected(self):
         for url in ('http://127.0.0.1/a', 'http://localhost/a', 'http://10.0.0.1/a'):
