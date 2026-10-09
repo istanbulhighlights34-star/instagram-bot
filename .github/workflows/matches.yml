@@ -34,7 +34,7 @@ jobs:
           IG_SESSION: ${{ secrets.IG_SESSION }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
-          echo 'Kapsam: erkek futbol; erkek basketbol Avrupa maçları. Türkiye basketbol ligi veri kaynağı henüz bağlı değil.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Kapsam: erkek futbol A takımı ve erkek basketbol A takımı; sağlayıcıların yayımladığı maçlar.' >> "$GITHUB_STEP_SUMMARY"
           if [ "$DRY_RUN" = "true" ]; then
             python matches.py --dry-run
           else
