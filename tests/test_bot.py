@@ -108,9 +108,21 @@ class BotTests(unittest.TestCase):
             self.assertEqual(Path(destination).name, 'haber.jpg')
             self.assertTrue(Path(destination).is_file())
             return 123
-        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.download_article_image', side_effect=download), patch('bot.generate_ai_image', return_value=False), patch('bot.publish', side_effect=publish) as upload, patch('bot.save_posted_news'):
+        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.download_article_image', side_effect=download), patch('bot.render_free_design', return_value=False), patch('bot.generate_ai_image') as paid, patch('bot.publish', side_effect=publish) as upload, patch('bot.save_posted_news'):
             bot.post_news()
             upload.assert_called_once()
+            paid.assert_not_called()
+
+    def test_free_design_output_preserves_source(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'source.jpg'; dest = Path(folder) / 'design.jpg'
+            Image.new('RGB', (800, 500), 'green').save(source, 'JPEG')
+            original = source.read_bytes()
+            self.assertTrue(bot.render_free_design(source, dest, 'Beşiktaş için transfer iddiası'))
+            self.assertEqual(source.read_bytes(), original)
+            with Image.open(dest) as picture:
+                self.assertEqual(picture.size, (1080, 1080))
+                self.assertEqual(picture.format, 'JPEG')
 
     def test_rotation_excludes_used_and_last_at_boundary(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(bot, 'FALLBACK_HISTORY', Path(folder) / 'history.txt'):
@@ -175,18 +187,18 @@ class BotTests(unittest.TestCase):
         with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.download_article_image', return_value=True) as article, patch('bot.generate_ai_image', return_value=False) as ai, patch('bot.download_fallback_image') as fallback, patch('bot.publish', return_value=789), patch('bot.save_posted_news'):
             bot.post_news()
             article.assert_called_once()
-            ai.assert_called_once()
+            ai.assert_not_called()
             fallback.assert_not_called()
 
 
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
-    def test_photo_before_ai_order(self):
+    def test_photo_before_local_design_order(self):
         news = {'title': 'Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
         calls = []
-        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', side_effect=lambda *a, **kw: calls.append('ai') or False), patch('bot.download_web_image', side_effect=lambda *a: calls.append('web') or False), patch('bot.download_article_image', side_effect=lambda *a: calls.append('article') or True), patch('bot.publish', return_value=123), patch('bot.save_posted_news'):
+        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.render_free_design', side_effect=lambda *a, **kw: calls.append('design') or False), patch('bot.download_web_image', side_effect=lambda *a: calls.append('web') or False), patch('bot.download_article_image', side_effect=lambda *a: calls.append('article') or True), patch('bot.publish', return_value=123), patch('bot.save_posted_news'):
             bot.post_news()
-        self.assertEqual(calls, ['web', 'article', 'ai'])
+        self.assertEqual(calls, ['web', 'article', 'design'])
 
 
 class ImageSearchTests(unittest.TestCase):
