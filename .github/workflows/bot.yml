@@ -71,10 +71,11 @@ jobs:
       - name: Paylaşım geçmişini kaydet
         if: always() && (github.event_name == 'schedule' || !inputs.dry_run)
         run: |
-          if [ ! -f paylasilan_haberler.txt ]; then exit 0; fi
+          touch paylasilan_haberler.txt
+          if [ ! -f kullanilan_yedek_gorseller.txt ]; then touch kullanilan_yedek_gorseller.txt; fi
           git config user.name 'Instagram Bot'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add paylasilan_haberler.txt
+          git add paylasilan_haberler.txt kullanilan_yedek_gorseller.txt
           if git diff --cached --quiet; then exit 0; fi
           git commit -m 'Save published news history'
           git pull --rebase origin main
