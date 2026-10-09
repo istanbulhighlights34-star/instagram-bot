@@ -1,14 +1,12 @@
 import os
 import json
-import time
 import requests
 import feedparser
 import cloudscraper
+import base64
 from instagrapi import Client
-from google import genai
-from google.genai import types
 
-# Şifreler GitHub Secrets kasasından güvenle çekilir
+# Şifreler
 IG_USERNAME = os.getenv("IG_USERNAME")
 IG_PASSWORD = os.getenv("IG_PASSWORD")
 IG_SESSION = os.getenv("IG_SESSION")
@@ -64,52 +62,57 @@ def get_latest_unposted_news():
     return None
 
 def generate_caption(title, summary):
-    print("Gemini API metni hazırlıyor...", flush=True)
+    print("Gemini API (REST) metni hazırlıyor...", flush=True)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    prompt = f"Sen koyu bir Beşiktaş taraftarı ve çok takipçili bir Instagram spor sayfasının yöneticisisin. Aşağıdaki haberi okuyup, Instagram'da paylaşmak için samimi, enerjik, ateşli ve takipçilere soru soran bir dil ile yeniden yaz. Lütfen metnin sonuna mutlaka #Beşiktaş, #BJK, #KaraKartal gibi popüler etiketleri ekle. Metin doğrudan kopyalanıp Instagram'a yapıştırılacak formatta olmalı. Sadece paylaşılacak metni ver.\n\nHaber Başlığı: {title}\n\nHaber Detayı: {summary}"
+    
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+    
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        prompt = f"""Sen koyu bir Beşiktaş taraftarı ve çok takipçili bir Instagram spor sayfasının yöneticisisin. Aşağıdaki haberi okuyup, Instagram'da paylaşmak için samimi, enerjik, ateşli ve takipçilere soru soran bir dil ile yeniden yaz. Lütfen metnin sonuna mutlaka #Beşiktaş, #BJK, #KaraKartal gibi popüler etiketleri ekle. Metin doğrudan kopyalanıp Instagram'a yapıştırılacak formatta olmalı. Sadece paylaşılacak metni ver.
-
-Haber Başlığı: {title}
-Haber Detayı: {summary}"""
-        
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(model='gemini-3.8-flash', contents=prompt)
-                return response.text.strip()
-            except Exception as e:
-                print(f"Gemini API çok yoğun. (Deneme {attempt+1}/2)", flush=True)
-                time.sleep(5)
+        response = requests.post(url, json=payload, timeout=20)
+        if response.status_code == 200:
+            data = response.json()
+            return data['candidates'][0]['content']['parts'][0]['text'].strip()
+        else:
+            print(f"Yapay zeka sunucusu dolu veya hata verdi: {response.text}", flush=True)
     except Exception as e:
-        print(f"Yapay zeka metin üretirken hata verdi: {e}", flush=True)
+        print(f"Bağlantı hatası: {e}", flush=True)
         
     print("Telif riski olmaması için paylaşım İPTAL edildi.", flush=True)
     return None
 
 def generate_ai_image(title):
     print("Yapay Zeka (Imagen 3) habere özel özgün görsel çiziyor...", flush=True)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key={GEMINI_API_KEY}"
+    prompt = f"A highly detailed, cinematic, energetic sports illustration representing Beşiktaş football club. Theme: {title}. Black and white colors with subtle red accents. No text or words in the image. High quality, photorealistic but artistic."
+    
+    payload = {
+        "instances": [{"prompt": prompt}],
+        "parameters": {
+            "sampleCount": 1,
+            "aspectRatio": "1:1",
+            "outputOptions": {"mimeType": "image/jpeg"}
+        }
+    }
+    
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        prompt = f"A highly detailed, cinematic, energetic sports illustration representing Beşiktaş football club. Theme: {title}. Black and white colors with subtle red accents. No text or words in the image. High quality, photorealistic but artistic."
-        
-        for attempt in range(2):
-            try:
-                result = client.models.generate_images(
-                    model='imagen-3.0-generate-001',
-                    prompt=prompt,
-                    config=types.GenerateImagesConfig(number_of_images=1, output_mime_type="image/jpeg", aspect_ratio="1:1")
-                )
-                for generated_image in result.generated_images:
+        response = requests.post(url, json=payload, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            if 'predictions' in data and len(data['predictions']) > 0:
+                image_b64 = data['predictions'][0].get('bytesBase64Encoded', '')
+                if image_b64:
                     with open(TEMP_IMAGE, 'wb') as f:
-                        f.write(generated_image.image.image_bytes)
-                print("Özgün görsel başarıyla çizildi!", flush=True)
-                return True
-            except Exception as e:
-                print(f"Görsel oluşturulamadı (Yoğun). (Deneme {attempt+1}/2)", flush=True)
-                time.sleep(3)
+                        f.write(base64.b64decode(image_b64))
+                    print("Özgün görsel başarıyla çizildi!", flush=True)
+                    return True
+        print(f"Yapay zeka görsel çizemedi: {response.status_code}", flush=True)
     except Exception as e:
-        print(f"Yapay zeka görsel motoru hata verdi: {e}", flush=True)
+        print(f"Görsel çizim hatası: {e}", flush=True)
         
-    print("Yapay Zeka görsel çizemedi. Orijinal haber görseline (B Planı) dönülüyor.", flush=True)
+    print("Orijinal haber görseline (B Planı) dönülüyor.", flush=True)
     return False
 
 def download_image(url):
