@@ -228,9 +228,9 @@ def generate_ai_image(title, destination):
     worker = context.Process(target=_image_worker, args=(title, destination, results))
     worker.start()
     try:
-        worker.join(timeout=45)
+        worker.join(timeout=180)
         if worker.is_alive():
-            LOG.warning('Görsel üretimi 45 saniyeyi aştı; B planına geçiliyor.')
+            LOG.warning('Görsel üretimi 180 saniyeyi aştı; B planına geçiliyor.')
             worker.terminate()
             worker.join(timeout=3)
             if worker.is_alive():
@@ -446,7 +446,7 @@ def download_article_image(news, destination):
 
 
 
-def download_web_image(news, destination):
+def download_commons_image(news, destination):
     """Search Wikimedia on the web for a subject-matched photo."""
     from PIL import ImageOps
     subject = None
@@ -502,6 +502,62 @@ def download_web_image(news, destination):
     except Exception as exc:
         LOG.warning('İnternet görsel araması tamamlanamadı: %s', type(exc).__name__)
     return False
+
+
+
+def download_web_image(news, destination):
+    """Search publicly indexed websites, then try Commons if needed."""
+    import feedparser
+    import ipaddress
+    subject = None
+    if PLAYER_MEDIA_CATALOG.exists():
+        catalog = json.loads(PLAYER_MEDIA_CATALOG.read_text(encoding='utf-8'))
+        headline = ' ' + subject_key(news['title']) + ' '
+        for player in catalog['players']:
+            if any(' ' + subject_key(alias) + ' ' in headline
+                   for alias in player.get('aliases', []) + [player['name']]):
+                subject = player['name']
+                break
+    query = (subject + ' Beşiktaş fotoğraf') if subject else (news['title'] + ' fotoğraf')
+    LOG.info('Genel web araması: %s', query)
+    try:
+        response = requests.get('https://www.bing.com/search',
+                                params={'q': query, 'format': 'rss'},
+                                timeout=(5, 15),
+                                headers={'User-Agent': 'BesiktasNewsBot/1.0'})
+        response.raise_for_status()
+        results = feedparser.parse(response.content)
+        tried = 0
+        for entry in results.entries:
+            link = entry.get('link', '')
+            parsed = urlparse(link)
+            if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+                continue
+            if parsed.username or parsed.password or parsed.hostname in ('localhost', 'localhost.localdomain') or parsed.hostname.endswith(('.local', '.internal')):
+                continue
+            try:
+                if not ipaddress.ip_address(parsed.hostname).is_global:
+                    continue
+            except ValueError:
+                pass
+            # The original news cover remains the final stage.
+            if parsed.hostname.removeprefix('www.') == urlparse(news['link']).hostname.removeprefix('www.'):
+                continue
+            description = subject_key(entry.get('title', '') + ' ' + clean_text(entry.get('summary', '')))
+            if subject and not all(token in description.split() for token in subject_key(subject).split()):
+                continue
+            if not any(word in description.split() for word in ('besiktas', 'bjk')):
+                continue
+            tried += 1
+            LOG.info('Web görsel adayı: %s', parsed.hostname)
+            candidate = dict(news, link=link)
+            if download_article_image(candidate, destination):
+                return True
+            if tried >= 3:
+                break
+    except Exception as exc:
+        LOG.warning('Genel web araması tamamlanamadı: %s', type(exc).__name__)
+    return download_commons_image(news, destination)
 
 
 def post_news(dry_run=False):
