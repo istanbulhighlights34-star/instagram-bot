@@ -1,1 +1,38 @@
+name: Instagram AI Bot
 
+on:
+  schedule:
+    # Günde 4 kez
+    - cron: '0 8,12,16,19 * * *'
+  workflow_dispatch:
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Depoyu Klonla
+        uses: actions/checkout@v3
+
+      - name: Python'u Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Kütüphaneleri Yükle
+        run: pip install instagrapi feedparser requests cloudscraper
+
+      - name: Botu Çalıştır
+        env:
+          IG_USERNAME: ${{ secrets.IG_USERNAME }}
+          IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
+          IG_SESSION: ${{ secrets.IG_SESSION }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python bot.py
+
+      - name: Paylaşılanları Kaydet
+        run: |
+          git config --global user.name "AI Bot"
+          git config --global user.email "bot@example.com"
+          git add paylasilan_haberler.txt
+          git commit -m "Yeni haber paylaşıldı" || echo "Değişiklik yok"
+          git push
