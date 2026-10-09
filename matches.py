@@ -1,5 +1,6 @@
-"""Free match monitoring. Sources: ESPN football and EuroLeague/EuroCup."""
+"""Free match monitoring. Sources: ESPN football and Mackolik basketball."""
 import argparse
+from html.parser import HTMLParser
 import io
 import json
 import os
@@ -65,45 +66,127 @@ def football(now):
     return list(output.values())
 
 
-def basketball_finished(header):
-    try:
-        minutes, seconds = map(int, header['GameTime'].split(':'))
-        a, b = int(header['ScoreA']), int(header['ScoreB'])
-        return (header.get('Live') is False and header.get('Quarter') == ''
-                and header.get('RemainingPartialTime') == '00:00'
-                and minutes >= 40 and minutes % 5 == 0 and seconds == 0
-                and a != b and a > 0 and b > 0)
-    except (KeyError, ValueError, TypeError):
+class Node:
+    def __init__(self, tag='', attrs=None):
+        self.tag, self.attrs, self.children = tag, dict(attrs or []), []
+    def walk(self):
+        yield self
+        for child in self.children:
+            if isinstance(child, Node):
+                yield from child.walk()
+    def cls(self, value):
+        return [n for n in self.walk() if value in n.attrs.get('class','').split()]
+    def text(self):
+        return ' '.join(c.text() if isinstance(c,Node) else c for c in self.children).strip()
+
+
+class MatchHTML(HTMLParser):
+    def __init__(self, content):
+        super().__init__()
+        self.root = Node()
+        self.stack = [self.root]
+        self.feed(content)
+    def handle_starttag(self, tag, attrs):
+        node = Node(tag,attrs)
+        self.stack[-1].children.append(node)
+        if tag not in {'img','input','br','hr','meta','link','source','area','base','wbr','embed','param','col','track'}:
+            self.stack.append(node)
+    def handle_endtag(self, tag):
+        for i in range(len(self.stack)-1,0,-1):
+            if self.stack[i].tag == tag:
+                self.stack = self.stack[:i]
+                break
+    def handle_data(self, text):
+        self.stack[-1].children.append(text)
+
+
+BASKET_TEAM = '8z1xon628i3z0fzga522navq'
+BASKET_URL = 'https://www.mackolik.com/basketbol/takim/be%C5%9Fikta%C5%9F-fibabanka/ma%C3%A7lar/'+BASKET_TEAM+'?view=all'
+
+
+def html_page(url):
+    response = requests.get(url, timeout=(5,20), headers={'User-Agent':'Mozilla/5.0'})
+    response.raise_for_status()
+    return MatchHTML(response.text).root
+
+
+def parse_basketball_fixture(root):
+    result = []
+    prefix = 'p0c-team-matches__'
+    for row in root.cls(prefix+'row'):
+        buttons = row.cls(prefix+'button')
+        if not buttons or not buttons[0].attrs.get('data-start-timestamp'):
+            continue
+        button = buttons[0]
+        teams=[]
+        for side in ('home','away'):
+            nodes=row.cls(prefix+'team--'+side)
+            if not nodes:
+                break
+            node=nodes[0]
+            links=node.cls(prefix+'team-name')
+            names=node.cls(prefix+'team-full-name')
+            scores=node.cls(prefix+'score')
+            if not links or not names:
+                break
+            team_id=links[0].attrs['href'].rstrip('/').split('/')[-1]
+            teams.append({'id':'BES' if team_id==BASKET_TEAM else team_id,'name':names[0].text(),
+                          'score':scores[0].text() if scores else '',
+                          'logo':'https://secure.cache.images.core.optasports.com/basketball/teams/150x150/uuid_'+team_id+'.png'})
+        if len(teams)!=2 or not any(t['id']=='BES' for t in teams):
+            continue
+        link=button.attrs['href']
+        classes=button.attrs.get('class','').split()
+        result.append({'id':'basketball:mackolik:'+link.rstrip('/').split('/')[-1], 'sport':'BASKETBOL',
+                       'start':datetime.fromtimestamp(int(button.attrs['data-start-timestamp']),UTC),
+                       'final':False,'scheduled':prefix+'button--start-time' in classes,
+                       'teams':teams, 'detail':link})
+    return result
+
+
+def confirm_basketball_result(match, root):
+    prefix='widget-basketball-match-details-header__'
+    if not root.cls(prefix+'match-status--fullTime') or not root.cls(prefix+'match-status--postGame'):
         return False
+    for team,side in zip(match['teams'],('home','away')):
+        scores=root.cls(prefix+'score--'+side)
+        if len(scores)!=1 or not scores[0].text().isdigit() or scores[0].text()!=team['score']:
+            return False
+    return match['teams'][0]['score'] != match['teams'][1]['score']
 
 
 def basketball(now):
-    output = []
-    year = now.year if now.month >= 7 else now.year-1
-    for competition in ('E', 'U'):
-        season = f'{competition}{year}'
+    result=[]
+    try:
+        for match in parse_basketball_fixture(html_page(BASKET_URL)):
+            if now-timedelta(hours=12)<=match['start']<=now+timedelta(minutes=30):
+                if match['start']<=now and all(t['score'].isdigit() for t in match['teams']):
+                    match['final']=confirm_basketball_result(match,html_page(match['detail']))
+                    match['scheduled']=False
+                if match['scheduled']:
+                    enrich_european_logos(match,now)
+                result.append(match)
+    except (requests.RequestException,KeyError,ValueError) as exc:
+        bot.LOG.warning('Basketbol fikstürü okunamadı: %s',type(exc).__name__)
+    return result
+
+
+def enrich_european_logos(match, now):
+    year=now.year if now.month>=7 else now.year-1
+    for competition in ('E','U'):
         try:
-            data = get(f'https://api-live.euroleague.net/v2/competitions/{competition}/seasons/{season}/games')
-            for game in data.get('data', []):
-                sides = [game['local'], game['road']]
-                if not any(t['club']['code'] == 'BES' for t in sides):
+            games=get(f'https://api-live.euroleague.net/v2/competitions/{competition}/seasons/{competition}{year}/games').get('data',[])
+            for game in games:
+                sides=[game['local'],game['road']]
+                if instant(game['utcDate']) != match['start'] or not any(t['club']['code']=='BES' for t in sides):
                     continue
-                start = instant(game['utcDate'])
-                if not now-timedelta(hours=12) <= start <= now+timedelta(minutes=30):
+                if [t['id']=='BES' for t in match['teams']] != [t['club']['code']=='BES' for t in sides]:
                     continue
-                final = False
-                if game.get('played'):
-                    header = get(f'https://live.euroleague.net/api/Header?gamecode={game["gameCode"]}&seasoncode={season}')
-                    # A stopped clock alone is insufficient: require explicit end marker.
-                    final = basketball_finished(header) and all(str(side['score']) == str(header.get(field, '')) for side, field in zip(sides, ('ScoreA', 'ScoreB')))
-                output.append({'id': f'basketball:{game["identifier"]}', 'sport': 'BASKETBOL',
-                               'start': start, 'final': final,
-                               'scheduled': not game.get('played') and game.get('confirmedDate') is True and game.get('confirmedHour') is True and game.get('gameStatus') == 'Confirmed',
-                               'teams': [{'id': t['club']['code'], 'name': t['club']['name'],
-                                          'logo': t['club']['images'].get('crest'), 'score': str(t['score'])} for t in sides]})
-        except (requests.RequestException, KeyError, ValueError) as exc:
-            bot.LOG.warning('Basketbol kaynağı %s okunamadı: %s', season, type(exc).__name__)
-    return output
+                for team,side in zip(match['teams'],sides):
+                    team['logo']=side['club']['images'].get('crest') or team['logo']
+                return
+        except (requests.RequestException,KeyError,ValueError):
+            continue
 
 
 def starters(match):
@@ -139,6 +222,9 @@ def card(match, kind, players, path):
             f = font(size)
         draw.text((540,y),text,font=f,fill='white',anchor='mt')
     centered('BEŞİKTAŞ • '+match['sport'], 60, 44)
+    logo_y = 210 if players else 330
+    name_y = 425 if players else 565
+    value_y = 490 if players else 715
     for x, team in zip((280,800), match['teams']):
         if not team.get('logo'):
             raise ValueError('Takım logosu eksik')
@@ -147,11 +233,18 @@ def card(match, kind, players, path):
         if len(response.content) > 8*1024*1024:
             raise ValueError('Logo boyutu sınırı aşıldı')
         logo = Image.open(io.BytesIO(response.content)).convert('RGBA')
-        logo.thumbnail((190,190))
-        picture.paste(logo,(x-logo.width//2,190),logo)
+        logo = logo.crop(logo.getbbox())
+        from PIL import ImageOps
+        logo = ImageOps.contain(logo,(190,190))
+        picture.paste(logo,(x-logo.width//2,logo_y+(190-logo.height)//2),logo)
+        name = team_name(team)
+        size = 34
+        while draw.textbbox((0,0),name,font=font(size))[2] > 440 and size > 18:
+            size -= 2
+        draw.text((x,name_y),name,font=font(size),fill='white',anchor='mt')
     centered('MAÇ SONUCU' if kind == 'result' else 'MAÇ GÜNÜ',130,30)
-    centered(' — '.join(team_name(t) for t in match['teams']), 410, 35)
-    centered(' : '.join(t['score'] for t in match['teams']) if kind == 'result' else match['start'].astimezone(ISTANBUL).strftime('%d.%m.%Y • %H:%M'),480,72 if kind=='result' else 42)
+    centered('VS',logo_y+75,32)
+    centered(' : '.join(t['score'] for t in match['teams']) if kind == 'result' else match['start'].astimezone(ISTANBUL).strftime('%d.%m.%Y • %H:%M'),value_y,72 if kind=='result' else 42)
     if players:
         centered('İLK 11',565,30)
         for i, player in enumerate(players):
