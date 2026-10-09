@@ -76,6 +76,23 @@ class MatchTests(unittest.TestCase):
     def test_mottos_match_venue(self):
         self.assertIn(matches.choose_motto(True,{}),matches.MOTTOS['away'])
         self.assertIn(matches.choose_motto(False,{}),matches.MOTTOS['home'])
+    def test_explicit_publish_rejects_wrong_or_old_match(self):
+        self.match.update(start=self.now-timedelta(minutes=1))
+        with tempfile.TemporaryDirectory() as directory,patch('matches.STATE',Path(directory)/'state.json'),patch('matches.card') as card:
+            matches.run([self.match],self.now,publish_match='test')
+            card.assert_not_called()
+            self.match['start']=self.now+timedelta(hours=2)
+            matches.run([self.match],self.now,publish_match='another')
+            card.assert_not_called()
+    def test_explicit_publish_consumes_pre_match_key(self):
+        self.match.update(start=self.now+timedelta(hours=2),sport='BASKETBOL',teams=[{'id':'other','name':'Rakip'},{'id':'BES','name':'Beşiktaş'}])
+        with tempfile.TemporaryDirectory() as directory:
+            state=Path(directory)/'state.json'
+            with patch('matches.STATE',state),patch('matches.card'),patch('matches.bot.publish',return_value='456') as publish:
+                matches.run([self.match],self.now,publish_match='test')
+                self.assertIn('test:pre',state.read_text())
+                matches.run([self.match],self.match['start']-timedelta(minutes=30))
+                self.assertEqual(publish.call_count,1)
     def test_dedup(self):
         with tempfile.TemporaryDirectory() as directory:
             state=Path(directory)/'state.json';state.write_text('{"test:pre":{}}')
