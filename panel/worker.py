@@ -9,9 +9,18 @@ from panel.store import Store
 
 def run(store=None, client_factory=Client):
     if not os.getenv('SUPABASE_URL') or not os.getenv('SUPABASE_SERVICE_ROLE_KEY'):
+        if os.getenv('CHECK_ONLY') == 'true':
+            raise RuntimeError('GitHub panel bağlantı ayarları eksik.')
         print('Panel dosya alanı henüz bağlı değil; işlem yapılmadı.')
         return
     store = store or Store()
+    if os.getenv('CHECK_ONLY') == 'true':
+        store.rows(select='id', limit='1')
+        bucket = store.call('GET', '/storage/v1/bucket/kartal-panel').json()
+        if bucket.get('public') is not False:
+            raise RuntimeError('Panel dosya alanı özel olmalı.')
+        print('GitHub özel panel bağlantısı doğrulandı. Instagram paylaşımı yapılmadı.')
+        return
     candidates = store.rows(status='eq.queued', order='created_at.asc', limit='1')
     if not candidates:
         print('Onaylanmış panel gönderisi yok.')
