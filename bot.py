@@ -78,14 +78,14 @@ def image_interaction(model, payload):
     key = os.getenv('GEMINI_API_KEY')
     # SDK retries disabled: this function controls the three attempts.
     client = genai.Client(api_key=key, http_options=types.HttpOptions(
-        timeout=90000, retry_options=types.HttpRetryOptions(attempts=1)))
+        timeout=90000, retry_options=types.HttpRetryOptions(attempts=0)))
     prompt = payload['contents'][0]['parts'][0]['text']
     try:
         for attempt in range(3):
             try:
                 LOG.info('Görsel üretimi başladı: %s; deneme %s/3', model, attempt + 1)
                 interaction = client.interactions.create(
-                    model=model, input=prompt, store=False, timeout=90,
+                    model=model, input=prompt, store=False, timeout=30,
                     response_format={'type': 'image', 'aspect_ratio': '1:1',
                                      'image_size': '1K', 'mime_type': 'image/jpeg'})
                 output = interaction.output_image
@@ -98,7 +98,7 @@ def image_interaction(model, payload):
                 code = getattr(exc, 'code', None)
                 LOG.warning('Görsel Interactions API: %s HTTP %s; deneme %s/3',
                             type(exc).__name__, code or 'bilinmiyor', attempt + 1)
-                if code and code not in (408, 429, 500, 502, 503, 504):
+                if code == 429 or (code and code not in (408, 500, 502, 503, 504)):
                     return None
             if attempt < 2:
                 time.sleep(10 * (attempt + 1))
@@ -191,6 +191,35 @@ def generate_ai_image(title, destination):
     return False
 
 
+
+FALLBACK_SOURCE = 'https://commons.wikimedia.org/wiki/File:Vodafone_Park,_Istanbul_(from_outside).jpg'
+FALLBACK_URL = 'https://commons.wikimedia.org/wiki/Special:FilePath/Vodafone_Park,_Istanbul_(from_outside).jpg'
+
+
+def download_fallback_image(destination):
+    """Verified CC0 Beşiktaş stadium photo; decoded before any upload."""
+    from PIL import ImageOps
+    try:
+        response = requests.get(FALLBACK_URL, timeout=(10, 25), stream=True,
+                                headers={'User-Agent': 'BesiktasNewsBot/1.0'})
+        with response:
+            response.raise_for_status()
+            raw = bytearray()
+            for chunk in response.iter_content(65536):
+                raw.extend(chunk)
+                if len(raw) > 10 * 1024 * 1024:
+                    raise ValueError('Görsel boyutu sınırı aşıldı.')
+        with Image.open(io.BytesIO(raw)) as picture:
+            picture = ImageOps.exif_transpose(picture).convert('RGB')
+            ImageOps.pad(picture, (1080, 1080), color='black').save(
+                destination, 'JPEG', quality=95)
+        LOG.info('B planı: CC0 Beşiktaş stadyum fotoğrafı hazır.')
+        return True
+    except Exception as exc:
+        LOG.warning('B planı fotoğrafı indirilemedi: %s', type(exc).__name__)
+        return False
+
+
 def publish(image_path, caption):
     from instagrapi import Client
     username, password = os.getenv('IG_USERNAME'), os.getenv('IG_PASSWORD')
@@ -235,10 +264,20 @@ def post_news(dry_run=False):
     LOG.info('Metin hazır; görsel üretimine geçiliyor.')
     with tempfile.TemporaryDirectory(prefix='instagram-news-') as folder:
         image_path = Path(folder) / 'haber.jpg'
-        if not generate_ai_image(news['title'], image_path):
-            report_outcome('Görsel üretilemedi. Önizleme ve Instagram paylaşımı yapılmadı; haber kaydedilmedi.')
-            return
-        caption = caption[:2150] + '\nGörsel: yapay zekâ ile üretilmiştir.'
+        try:
+            ai_image = generate_ai_image(news['title'], image_path)
+        except Exception as exc:
+            LOG.warning('Yapay zekâ görsel hatası: %s; B planına geçiliyor.', type(exc).__name__)
+            ai_image = False
+        if ai_image:
+            image_credit = '\nGörsel: yapay zekâ ile üretilmiştir.'
+        else:
+            LOG.info('B planına geçiliyor: Beşiktaş stadyum fotoğrafı.')
+            if not download_fallback_image(image_path):
+                report_outcome('Yapay zekâ ve yedek fotoğraf alınamadı; yüklenebilecek görsel yok. Haber kaydedilmedi.')
+                return
+            image_credit = '\nTemsili arşiv fotoğrafı: Olos88 / Wikimedia Commons (CC0).\n' + FALLBACK_SOURCE
+        caption = caption[:2200 - len(image_credit)] + image_credit
         if dry_run:
             import shutil
             preview = Path('preview')
