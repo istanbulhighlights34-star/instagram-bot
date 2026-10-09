@@ -19,6 +19,9 @@ class BotTests(unittest.TestCase):
         self.article_patch = patch('bot.download_article_image', return_value=False)
         self.article_patch.start()
         self.addCleanup(self.article_patch.stop)
+        self.web_patch = patch('bot.download_web_image', return_value=False)
+        self.web_patch.start()
+        self.addCleanup(self.web_patch.stop)
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     @patch('bot.time.sleep')
@@ -38,7 +41,7 @@ class BotTests(unittest.TestCase):
     def test_failures_do_not_record(self):
         news = {'title': 'Başlık', 'summary': 'Özet', 'link': 'https://news.test/1'}
         for caption, image in ((None, True), ('Metin', False), ('Metin', True)):
-            with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value=caption), patch('bot.generate_ai_image', return_value=image), patch('bot.download_fallback_image', return_value=False), patch('bot.publish', side_effect=RuntimeError('failed')) as publish, patch('bot.save_posted_news') as save:
+            with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value=caption), patch('bot.generate_ai_image', return_value=image), patch('bot.download_article_image', return_value=False), patch('bot.publish', side_effect=RuntimeError('failed')) as publish, patch('bot.save_posted_news') as save:
                 if caption and image:
                     with self.assertRaises(RuntimeError):
                         bot.post_news()
@@ -73,7 +76,7 @@ class BotTests(unittest.TestCase):
     def test_ai_error_uses_fallback_and_publishes(self):
         news = {'title': 'Başlık', 'summary': 'Özet', 'link': 'https://news.test/1'}
         for error in (False, RuntimeError('429 quota')):
-            with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', side_effect=error if isinstance(error, Exception) else None, return_value=False), patch('bot.download_fallback_image', return_value={'title': 'Bjk Stadyum.jpg', 'source': 'https://commons.wikimedia.org/wiki/File:Bjk_Stadyum.jpg'}) as fallback, patch('bot.save_fallback_photo'), patch('bot.publish', return_value=456) as publish, patch('bot.save_posted_news') as save:
+            with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', side_effect=error if isinstance(error, Exception) else None, return_value=False), patch('bot.download_article_image', return_value=True) as fallback, patch('bot.publish', return_value=456) as publish, patch('bot.save_posted_news') as save:
                 bot.post_news()
                 fallback.assert_called_once()
                 publish.assert_called_once()
@@ -140,13 +143,23 @@ class BotTests(unittest.TestCase):
         self.assertEqual(parser.images, ['/miretti.jpg'])
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
-    def test_article_cover_precedes_ai_and_fallback(self):
+    def test_article_cover_is_last_resort(self):
         news = {'title': 'Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
-        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.download_article_image', return_value=True) as article, patch('bot.generate_ai_image') as ai, patch('bot.download_fallback_image') as fallback, patch('bot.publish', return_value=789), patch('bot.save_posted_news'):
+        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.download_article_image', return_value=True) as article, patch('bot.generate_ai_image', return_value=False) as ai, patch('bot.download_fallback_image') as fallback, patch('bot.publish', return_value=789), patch('bot.save_posted_news'):
             bot.post_news()
             article.assert_called_once()
-            ai.assert_not_called()
+            ai.assert_called_once()
             fallback.assert_not_called()
+
+
+
+    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
+    def test_exact_ai_web_article_order(self):
+        news = {'title': 'Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
+        calls = []
+        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', side_effect=lambda *a: calls.append('ai') or False), patch('bot.download_web_image', side_effect=lambda *a: calls.append('web') or False), patch('bot.download_article_image', side_effect=lambda *a: calls.append('article') or True), patch('bot.publish', return_value=123), patch('bot.save_posted_news'):
+            bot.post_news()
+        self.assertEqual(calls, ['ai', 'web', 'article'])
 
 
 if __name__ == '__main__':
