@@ -83,6 +83,7 @@ def image_interaction(model, payload):
     try:
         for attempt in range(3):
             try:
+                LOG.info('Görsel üretimi başladı: %s; deneme %s/3', model, attempt + 1)
                 interaction = client.interactions.create(
                     model=model, input=prompt, store=False,
                     response_format={'type': 'image', 'aspect_ratio': '1:1',
@@ -226,10 +227,12 @@ def post_news(dry_run=False):
         report_outcome('Paylaşılacak yeni haber bulunamadı. Instagram paylaşımı yapılmadı.')
         return
     LOG.info('Haber: %s', news['title'])
+    LOG.info('Metin üretimi başladı.')
     caption = generate_caption(news['title'], news['summary'], news['link'])
     if not caption:
         report_outcome('Metin üretilemedi. Önizleme ve Instagram paylaşımı yapılmadı; haber kaydedilmedi. API hata ayrıntıları çalışma kayıtlarında bulunuyor.')
         return
+    LOG.info('Metin hazır; görsel üretimine geçiliyor.')
     with tempfile.TemporaryDirectory(prefix='instagram-news-') as folder:
         image_path = Path(folder) / 'haber.jpg'
         if not generate_ai_image(news['title'], image_path):
