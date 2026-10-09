@@ -36,7 +36,7 @@ jobs:
     needs: test
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -46,6 +46,7 @@ jobs:
           python-version: '3.14'
       - run: pip install -r requirements.txt
       - name: Botu çalıştır
+        timeout-minutes: 6
         env:
           IG_USERNAME: ${{ secrets.IG_USERNAME }}
           IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
