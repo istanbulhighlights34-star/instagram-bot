@@ -8,6 +8,12 @@ from PIL import Image
 import bot
 
 class BotTests(unittest.TestCase):
+    def setUp(self):
+        # Tests must never emit production status to the Actions summary.
+        self.summary_patch = patch.dict('os.environ', {'GITHUB_STEP_SUMMARY': ''})
+        self.summary_patch.start()
+        self.addCleanup(self.summary_patch.stop)
+
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     @patch('bot.time.sleep')
     @patch('bot.requests.post')
