@@ -95,7 +95,7 @@ def basketball(now):
                 if game.get('played'):
                     header = get(f'https://live.euroleague.net/api/Header?gamecode={game["gameCode"]}&seasoncode={season}')
                     # A stopped clock alone is insufficient: require explicit end marker.
-                    final = basketball_finished(header)
+                    final = basketball_finished(header) and all(str(side['score']) == str(header.get(field, '')) for side, field in zip(sides, ('ScoreA', 'ScoreB')))
                 output.append({'id': f'basketball:{game["identifier"]}', 'sport': 'BASKETBOL',
                                'start': start, 'final': final,
                                'scheduled': not game.get('played') and game.get('confirmedDate') is True and game.get('confirmedHour') is True and game.get('gameStatus') == 'Confirmed',
@@ -123,6 +123,10 @@ def font(size):
     raise RuntimeError('Türkçe yazı tipi bulunamadı')
 
 
+def team_name(team):
+    return 'Beşiktaş' if team['id'] in {'1895', 'BES'} else team['name']
+
+
 def card(match, kind, players, path):
     picture = Image.new('RGB', (1080,1080), '#101319')
     draw = ImageDraw.Draw(picture)
@@ -146,7 +150,7 @@ def card(match, kind, players, path):
         logo.thumbnail((190,190))
         picture.paste(logo,(x-logo.width//2,190),logo)
     centered('MAÇ SONUCU' if kind == 'result' else 'MAÇ GÜNÜ',130,30)
-    centered(' — '.join(t['name'] for t in match['teams']), 410, 35)
+    centered(' — '.join(team_name(t) for t in match['teams']), 410, 35)
     centered(' : '.join(t['score'] for t in match['teams']) if kind == 'result' else match['start'].astimezone(ISTANBUL).strftime('%d.%m.%Y • %H:%M'),480,72 if kind=='result' else 42)
     if players:
         centered('İLK 11',565,30)
@@ -173,7 +177,7 @@ def run(matches, now, dry_run=False):
         folder.mkdir(exist_ok=True)
         path = folder/(key.replace(':','-')+'.jpg')
         card(match,kind,players,path)
-        caption = ('MAÇ SONUCU 🦅' if kind=='result' else 'MAÇ GÜNÜ 🦅')+'\n\n'+' — '.join(t['name'] for t in match['teams'])
+        caption = ('MAÇ SONUCU 🦅' if kind=='result' else 'MAÇ GÜNÜ 🦅')+'\n\n'+' — '.join(team_name(t) for t in match['teams'])
         caption += '\n'+(' : '.join(t['score'] for t in match['teams']) if kind=='result' else match['start'].astimezone(ISTANBUL).strftime('%d.%m.%Y %H:%M'))
         if players:
             caption += '\n\nİlk 11: '+', '.join(players)
