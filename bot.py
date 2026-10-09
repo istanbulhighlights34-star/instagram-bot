@@ -662,32 +662,30 @@ def download_web_image(news, destination):
     return download_commons_image(news, destination)
 
 
+def brand_asset(name, size, opacity=1):
+    asset = Path(__file__).resolve().parent / 'media' / (name + '.b64')
+    with Image.open(io.BytesIO(base64.b64decode(asset.read_text()))) as original:
+        mark = original.convert('RGBA')
+    box = mark.getchannel('A').getbbox()
+    if not box: raise RuntimeError('Marka görseli boş.')
+    mark = mark.crop(box)
+    mark.thumbnail(size, Image.Resampling.LANCZOS)
+    mark.putalpha(mark.getchannel('A').point(lambda value: round(value * opacity)))
+    return mark
+
+
 def claw_mark(size, opacity):
-    from PIL import ImageOps
-    asset = Path(__file__).resolve().parent / 'media' / 'claw-logo.b64'
-    with Image.open(io.BytesIO(base64.b64decode(asset.read_text(), validate=False))) as source:
-        # Interpret the supplied dark mark as alpha; white paper stays transparent.
-        alpha = ImageOps.invert(source.convert('L'))
-        alpha = alpha.point(lambda value: 0 if value < 25 else min(255, round(value * 255 / 210)))
-        box = alpha.getbbox()
-        if not box:
-            raise RuntimeError('Pençe filigranı boş.')
-        alpha = alpha.crop(box)
-        alpha.thumbnail(size, Image.Resampling.LANCZOS)
-        alpha = alpha.point(lambda value: round(value * opacity))
-        mark = Image.new('RGBA', alpha.size, 'white')
-        mark.putalpha(alpha)
-        return mark
+    return brand_asset('kartalpenche1903-claws', size, opacity)
 
 
 def apply_claw_branding(source, destination, framed=True):
     with Image.open(source) as original:
         canvas = original.convert('RGBA')
     width, height = canvas.size
-    corner = claw_mark((round(width * .075), round(height * .075)), .95)
-    canvas.alpha_composite(corner, (width - corner.width - round(width * .025), round(height * .025)))
-    watermark = claw_mark((round(width * .56), round(height * .56)), .14)
-    photo_top = round(height * .13) if framed else 0
+    corner = brand_asset('kartalpenche1903-logo', (round(width * .18), round(height * .18)))
+    canvas.alpha_composite(corner, (width - corner.width - round(width * .025), round(height * .012)))
+    watermark = claw_mark((round(width * .56), round(height * .56)), .28)
+    photo_top = round(height * .204) if framed else 0
     canvas.alpha_composite(watermark, ((width - watermark.width) // 2, photo_top + (height - photo_top - watermark.height) // 2))
     canvas.convert('RGB').save(destination, 'JPEG', quality=95)
     return True
@@ -723,27 +721,18 @@ def render_free_design(source, destination, headline):
         photo = ImageOps.exif_transpose(original).convert('RGB')
         box = ImageChops.difference(photo, Image.new('RGB', photo.size, photo.getpixel((0, 0)))).getbbox()
         if box: photo = photo.crop(box)
-        photo = ImageOps.fit(photo, (1080, 940))
+        photo = ImageOps.fit(photo, (1080, 860))
     canvas = Image.new('RGBA', (1080, 1080), '#101216')
-    canvas.paste(photo, (0, 140))
+    canvas.paste(photo, (0, 220))
     draw = ImageDraw.Draw(canvas)
     # Metallic light panel and slanted red/black separators.
-    for y in range(140):
-        shade = 248 - round(y * .36)
+    for y in range(220):
+        shade = 248 - round(y * .22)
         draw.line((0, y, 535, y), fill=(shade, shade, shade))
-    draw.polygon([(480, 0), (555, 0), (500, 140), (425, 140)], fill='#b51226')
-    draw.polygon([(505, 0), (1080, 0), (1080, 140), (450, 140)], fill='#101216')
-    draw.line((0, 137, 1080, 137), fill='#d41e36', width=5)
-    draw.text((30, 43), 'BEŞİKTAŞ', font=font(50), fill='#17191d', stroke_width=1)
-    x = 560
-    for kind, value in [('text','K'),('icon','letter-a-black'),('text','RT'),('icon','letter-a-red'),('text','L')]:
-        if kind == 'text':
-            face = font(35); draw.text((x, 48), value, font=face, fill='white')
-            x += round(draw.textlength(value, font=face)) + 1
-        else:
-            mark = letter_a_mark(value, (45, 48), white=value.endswith('black'))
-            canvas.alpha_composite(mark, (x, 46)); x += mark.width + 3
-    draw.text((x + 3, 57), 'penche', font=font(25), fill='#e8e8e8')
+    draw.polygon([(480, 0), (555, 0), (500, 220), (425, 220)], fill='#b51226')
+    draw.polygon([(505, 0), (1080, 0), (1080, 220), (450, 220)], fill='#101216')
+    draw.line((0, 217, 1080, 217), fill='#d41e36', width=5)
+    draw.text((30, 80), 'BEŞİKTAŞ', font=font(50), fill='#17191d', stroke_width=1)
     canvas.convert('RGB').save(destination, 'JPEG', quality=95)
     return True
 
