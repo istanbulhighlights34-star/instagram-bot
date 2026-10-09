@@ -162,7 +162,7 @@ def generate_caption(title, summary, link):
         'Kaynak, bağlantı veya görsel açıklaması yazma. Metnin sonunda sadece bu haberde adı geçen kişilerin '
         'isimlerinden hashtag oluştur (örnek: #Miretti). Metinde verilmeyen ad veya soyadı ekleme. '
         'Kişi yoksa kişi etiketi yazma. Kulüp etiketlerini ekleme; ayrıca eklenecek. '
-        'Sadece paylaşım metnini ve bu kişi etiketlerini döndür.\n'
+        'İlk satırda en fazla 90 karakterlik, habere sadık kısa bir başlık yaz. Ardından boş satır ve paylaşım metni gelsin. Sadece paylaşım metnini ve bu kişi etiketlerini döndür.\n'
         + json.dumps({'başlık': title, 'özet': summary[:8000]}, ensure_ascii=False)
     )
     data = gemini_request(os.getenv('GEMINI_TEXT_MODEL', 'gemini-3.8-flash'),
@@ -662,6 +662,55 @@ def download_web_image(news, destination):
     return download_commons_image(news, destination)
 
 
+def render_free_design(source, destination, headline):
+    """Compose a photo card locally; no image-generation API call."""
+    from PIL import ImageDraw, ImageFont, ImageOps
+    fonts = ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+             '/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf',
+             '/System/Library/Fonts/Supplemental/Arial Bold.ttf']
+    def font(size):
+        for path in fonts:
+            if Path(path).is_file():
+                return ImageFont.truetype(path, size)
+        raise RuntimeError('Türkçe tasarım yazı tipi bulunamadı.')
+    with Image.open(source) as original:
+        photo = ImageOps.exif_transpose(original).convert('RGB')
+        # Remove solid padding added while preparing the downloaded photo.
+        background = Image.new('RGB', photo.size, photo.getpixel((0, 0)))
+        from PIL import ImageChops
+        box = ImageChops.difference(photo, background).getbbox()
+        if box:
+            photo = photo.crop(box)
+        photo = ImageOps.fit(photo, (1080, 800))
+    canvas = Image.new('RGB', (1080, 1080), '#101216')
+    canvas.paste(photo, (0, 110))
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle((0, 0, 1080, 110), fill='#101216')
+    draw.rectangle((0, 104, 1080, 110), fill='#cc2633')
+    draw.text((40, 24), 'BEŞİKTAŞ', font=font(46), fill='white')
+    draw.text((695, 39), 'KARA KARTAL', font=font(23), fill='#dddddd')
+    # Original eagle-inspired wing motif, separate from the player's face.
+    draw.polygon([(1015, 55), (952, 18), (968, 45), (938, 32), (982, 70),
+                  (1000, 66), (1015, 88), (1030, 66), (1048, 70),
+                  (1070, 32), (1050, 45), (1062, 18)], fill='white')
+    draw.rectangle((0, 850, 1080, 1080), fill='#101216')
+    draw.rectangle((40, 879, 110, 885), fill='#cc2633')
+    text = clean_text(headline)[:160]
+    for size in (42, 38, 34, 30):
+        face = font(size); lines = []; line = ''
+        for word in text.split():
+            candidate = (line + ' ' + word).strip()
+            if draw.textlength(candidate, font=face) > 995 and line:
+                lines.append(line); line = word
+            else:
+                line = candidate
+        if line: lines.append(line)
+        if len(lines) <= 3: break
+    draw.multiline_text((40, 907), '\n'.join(lines[:3]), font=face, fill='white', spacing=10)
+    canvas.save(destination, 'JPEG', quality=95)
+    return True
+
+
 def post_news(dry_run=False):
     if not os.getenv('GEMINI_API_KEY'):
         raise RuntimeError('GEMINI_API_KEY eksik.')
@@ -690,17 +739,16 @@ def post_news(dry_run=False):
         if not image_ready:
             report_outcome('İnternet araması, oyuncu havuzu ve haber kapağından uygun fotoğraf alınamadı. Haber kaydedilmedi.')
             return
-        LOG.info('Fotoğraf hazır; yapay zekâ ile Beşiktaş tasarımı işleniyor (en fazla 180 saniye).')
+        LOG.info('Fotoğraf hazır; ücretsiz yerel Beşiktaş tasarımı hazırlanıyor.')
         designed_path = Path(folder) / 'tasarim.jpg'
         try:
-            designed = generate_ai_image(news['title'], designed_path, reference=image_path)
-            if designed and designed_path.is_file():
+            headline = caption.split('\n')[0].strip() or news['title']
+            if len(headline) > 120:
+                headline = news['title']
+            if render_free_design(image_path, designed_path, headline):
                 image_path = designed_path
-                LOG.info('Beşiktaş tasarımı hazır.')
-            else:
-                LOG.warning('Tasarım oluşmadı; bulunan fotoğrafla devam ediliyor.')
         except Exception as exc:
-            LOG.warning('Tasarım hatası (%s); bulunan fotoğrafla devam ediliyor.', type(exc).__name__)
+            LOG.warning('Yerel tasarım hatası (%s); orijinal fotoğraf korunuyor.', type(exc).__name__)
         if dry_run:
             import shutil
             preview = Path('preview')
