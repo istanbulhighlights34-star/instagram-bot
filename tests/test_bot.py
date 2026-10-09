@@ -257,3 +257,20 @@ class ImageSearchTests(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 
+
+
+class LoginRecoveryTests(unittest.TestCase):
+    def test_invalid_saved_session_uses_password_before_upload(self):
+        from unittest.mock import MagicMock
+        import sys
+        client=MagicMock()
+        client.photo_upload.return_value.pk=123
+        module=MagicMock()
+        module.Client.return_value=client
+        for session in ('not-json','"cookie-value"'):
+            client.reset_mock()
+            with patch.dict(sys.modules,{'instagrapi':module}),patch.dict('os.environ',{'IG_USERNAME':'account','IG_PASSWORD':'password','IG_SESSION':session}):
+                self.assertEqual(bot.publish('image.jpg','Caption'),123)
+                client.set_settings.assert_not_called()
+                client.login.assert_called_once_with('account','password')
+                client.photo_upload.assert_called_once()
