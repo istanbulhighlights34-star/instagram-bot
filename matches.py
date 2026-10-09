@@ -1,5 +1,6 @@
 """Free match monitoring. Sources: ESPN football and Mackolik basketball."""
 import argparse
+import base64
 from html.parser import HTMLParser
 import io
 import json
@@ -200,10 +201,8 @@ def starters(match):
 
 
 def font(size):
-    for path in ('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', '/Library/Fonts/Arial.ttf', '/System/Library/Fonts/Supplemental/Arial.ttf'):
-        if Path(path).exists():
-            return ImageFont.truetype(path, size)
-    raise RuntimeError('Türkçe yazı tipi bulunamadı')
+    asset = Path(__file__).resolve().parent/'media'/'match-font.b64'
+    return ImageFont.truetype(io.BytesIO(base64.b64decode(asset.read_text())),size)
 
 
 def team_name(team):
@@ -221,10 +220,11 @@ def card(match, kind, players, path):
             size -= 2
             f = font(size)
         draw.text((540,y),text,font=f,fill='white',anchor='mt')
-    centered('BEŞİKTAŞ • '+match['sport'], 60, 44)
-    logo_y = 210 if players else 330
-    name_y = 425 if players else 565
-    value_y = 490 if players else 715
+    centered('BEŞİKTAŞ • '+match['sport'], 200, 52)
+    logo_y = 345 if players else 360
+    logo_height = 145 if players else 190
+    name_y = 510 if players else 600
+    value_y = 565 if players else 745
     for x, team in zip((280,800), match['teams']):
         if not team.get('logo'):
             raise ValueError('Takım logosu eksik')
@@ -234,21 +234,37 @@ def card(match, kind, players, path):
             raise ValueError('Logo boyutu sınırı aşıldı')
         logo = Image.open(io.BytesIO(response.content)).convert('RGBA')
         logo = logo.crop(logo.getbbox())
-        from PIL import ImageOps
-        logo = ImageOps.contain(logo,(190,190))
-        picture.paste(logo,(x-logo.width//2,logo_y+(190-logo.height)//2),logo)
+        # Exclude a separated sponsor word above the club crest when present.
+        alpha = logo.getchannel('A').point(lambda value: 255 if value >= 20 else 0)
+        gap_start = None
+        for y in range(1,round(logo.height*.3)):
+            blank = alpha.crop((0,y,logo.width,y+1)).getbbox() is None
+            if blank and gap_start is None:
+                gap_start = y
+            if not blank and gap_start is not None:
+                if y-gap_start >= max(3,round(logo.height*.01)) and gap_start > logo.height*.08:
+                    logo = logo.crop((0,y,logo.width,logo.height))
+                    logo = logo.crop(logo.getbbox())
+                    break
+                gap_start = None
+        logo = logo.resize((round(logo.width*logo_height/logo.height),logo_height),Image.Resampling.LANCZOS)
+        picture.paste(logo,(x-logo.width//2,logo_y),logo)
         name = team_name(team)
         size = 34
         while draw.textbbox((0,0),name,font=font(size))[2] > 440 and size > 18:
             size -= 2
         draw.text((x,name_y),name,font=font(size),fill='white',anchor='mt')
-    centered('MAÇ SONUCU' if kind == 'result' else 'MAÇ GÜNÜ',130,30)
-    centered('VS',logo_y+75,32)
+    subtitle = 'MAÇ SONUCU' if kind == 'result' else 'MAÇ GÜNÜ'
+    watermark = bot.claw_mark((605,605),.28)
+    watermark_top = (1080-watermark.height)//2 + watermark.getchannel('A').getbbox()[1]
+    subtitle_height = draw.textbbox((0,0),subtitle,font=font(32),anchor='mt')[3]
+    centered(subtitle,watermark_top-subtitle_height,32)
+    centered('VS',logo_y+logo_height//2-15,32)
     centered(' : '.join(t['score'] for t in match['teams']) if kind == 'result' else match['start'].astimezone(ISTANBUL).strftime('%d.%m.%Y • %H:%M'),value_y,72 if kind=='result' else 42)
     if players:
-        centered('İLK 11',565,30)
+        centered('İLK 11',635,30)
         for i, player in enumerate(players):
-            draw.text((80 if i<6 else 580,625+(i if i<6 else i-6)*52),player,font=font(25),fill='white')
+            draw.text((80 if i<6 else 580,685+(i if i<6 else i-6)*48),player,font=font(25),fill='white')
     picture.save(path,'JPEG',quality=95)
     bot.apply_claw_branding(path,path,framed=False)
 
