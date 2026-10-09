@@ -731,6 +731,9 @@ def render_free_design(source, destination, headline):
                      '/usr/share/fonts/truetype/liberation2/LiberationSans-BoldItalic.ttf',
                      '/System/Library/Fonts/Supplemental/Arial Bold Italic.ttf']:
             if Path(path).is_file(): return ImageFont.truetype(path, size)
+        bundled = Path(__file__).resolve().parent / 'media' / 'match-font.b64'
+        if bundled.is_file():
+            return ImageFont.truetype(io.BytesIO(base64.b64decode(bundled.read_text())), size)
         raise RuntimeError('Türkçe tasarım yazı tipi bulunamadı.')
     with Image.open(source) as original:
         photo = ImageOps.exif_transpose(original).convert('RGB')
