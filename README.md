@@ -1,6 +1,6 @@
 # Beşiktaş Instagram haber botu
 
-En yeni paylaşılmamış RSS haberini seçer, metni yeniden yazar ve özgün temsili görsel üretir. Geçici API hatalarında ve boş yanıtlarda üç deneme yapılır. Kalıcı hatalarda tekrar denenmez. Metin/görsel oluşmazsa haber kaydedilmez; sonraki çalışmada hâlâ en yeni aday ise tekrar denenir. Haber sitelerinin fotoğrafları indirilmez.
+En yeni paylaşılmamış RSS haberini seçer, metni yeniden yazar ve özgün temsili görsel üretir. Geçici API hatalarında ve boş yanıtlarda üç deneme yapılır. Kalıcı hatalarda tekrar denenmez. Metin oluşmazsa haber kaydedilmez; sonraki çalışmada hâlâ en yeni aday ise tekrar denenir. Görsel üretimi başarısız olursa CC0 lisanslı Beşiktaş stadyum fotoğrafı indirilir ve paylaşım sürdürülür. Hem yapay zekâ hem yedek fotoğraf başarısızsa haber kaydedilmez.
 
 GitHub Secrets: GEMINI_API_KEY, IG_USERNAME, IG_PASSWORD; isteğe bağlı IG_SESSION (instagrapi oturum JSON verisi). Oturum yüklendikten sonra giriş doğrulanır. Instagram ek doğrulama isteyebilir. Şifreleri dosyalara yazmayın.
 
@@ -17,3 +17,6 @@ Metni yeniden yazmak veya yapay zekâyla görsel üretmek telif garantisi sağla
 
 
 9 Ekim 2026 güncellemesi: Metin Gemini 3.8 Flash, görsel Nano Banana 2.1; generateContent v1 API ve responseFormat görsel ayarları. Python 3.14; checkout v7.0.1, setup-python v7.0.0, upload-artifact v7.0.2. Ubuntu 24.04 açıkça seçilir. Çalışma özetinde üretim/paylaşım sonucu ayrı olarak gösterilir.
+
+
+B planı: 429 kota hatasında doğrudan yedek fotoğrafa geçilir. Diğer görsel hatalarında en fazla üç deneme yapılır; başarısızlık veya istisna sonrası yedek fotoğraf kullanılır. Kaynak: https://commons.wikimedia.org/wiki/File:Vodafone_Park,_Istanbul_(from_outside).jpg — Olos88, CC0. Paylaşım metninde temsili arşiv fotoğrafı olduğu ve kaynak belirtilir. Yedek fotoğraf indirilemiyorsa görselsiz Instagram fotoğraf paylaşımı yapılamaz; haber kaydedilmez. Önizleme modu Instagram'a paylaşım yapmaz.
