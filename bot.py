@@ -10,7 +10,8 @@ import os
 from pathlib import Path
 import re
 import random
-from urllib.parse import quote
+from urllib.parse import quote, urljoin, urlparse
+from html.parser import HTMLParser
 import tempfile
 import time
 
@@ -391,6 +392,59 @@ def save_player_photo(selected):
     temporary.replace(PLAYER_MEDIA_HISTORY)
 
 
+
+class ArticleImageParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.images = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != 'meta':
+            return
+        attrs = dict(attrs)
+        kind = (attrs.get('property') or attrs.get('name') or '').lower()
+        if kind in ('og:image', 'og:image:url', 'twitter:image', 'twitter:image:src'):
+            value = attrs.get('content', '').strip()
+            if value and value not in self.images:
+                self.images.append(value)
+
+
+def download_article_image(news, destination):
+    """Use only the selected article's editorial cover, never arbitrary search results."""
+    from PIL import ImageOps
+    try:
+        import cloudscraper
+        scraper = cloudscraper.create_scraper(browser='chrome')
+        page = scraper.get(news['link'], timeout=(5, 15))
+        page.raise_for_status()
+        parser = ArticleImageParser()
+        parser.feed(page.text[:2_000_000])
+        for candidate in parser.images[:3]:
+            image_url = urljoin(page.url, candidate)
+            if urlparse(image_url).scheme not in ('https', 'http'):
+                continue
+            try:
+                with scraper.get(image_url, timeout=(5, 15), stream=True) as response:
+                    response.raise_for_status()
+                    raw = bytearray()
+                    for chunk in response.iter_content(65536):
+                        raw.extend(chunk)
+                        if len(raw) > 15 * 1024 * 1024:
+                            raise ValueError('Görsel boyutu sınırı aşıldı.')
+                with Image.open(io.BytesIO(raw)) as picture:
+                    if min(picture.size) < 300:
+                        continue
+                    picture = ImageOps.exif_transpose(picture).convert('RGB')
+                    ImageOps.pad(picture, (1080, 1080), color='black').save(destination, 'JPEG', quality=95)
+                LOG.info('Haber sayfasının gerçek kapak fotoğrafı hazır.')
+                return True
+            except Exception as exc:
+                LOG.warning('Haber kapak görseli okunamadı: %s', type(exc).__name__)
+    except Exception as exc:
+        LOG.warning('Haber sayfasından görsel alınamadı: %s', type(exc).__name__)
+    return False
+
+
 def post_news(dry_run=False):
     if not os.getenv('GEMINI_API_KEY'):
         raise RuntimeError('GEMINI_API_KEY eksik.')
@@ -408,11 +462,10 @@ def post_news(dry_run=False):
     with tempfile.TemporaryDirectory(prefix='instagram-news-') as folder:
         image_path = Path(folder) / 'haber.jpg'
         player_photo = choose_player_photo(news['title'], image_path)
-        if player_photo['status'] == 'missing':
-            report_outcome(f"{player_photo['player']} için izinli fotoğraf havuzu boş veya okunamıyor. İlgisiz görsel kullanılmadı; haber kaydedilmedi.")
-            return
         if player_photo['status'] == 'ready':
             LOG.info('Habere eşleşen oyuncu fotoğrafı: %s', player_photo['player'])
+            ai_image = True
+        elif download_article_image(news, image_path):
             ai_image = True
         else:
             try:
