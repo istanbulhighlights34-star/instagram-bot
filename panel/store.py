@@ -11,7 +11,9 @@ class Store:
         self.key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
         if not self.url.startswith('https://') or not self.key:
             raise RuntimeError('Özel dosya alanı henüz bağlanmadı.')
-        self.headers = {'apikey': self.key, 'Authorization': 'Bearer ' + self.key}
+        self.headers = {'apikey': self.key}
+        if not self.key.startswith('sb_secret_'):
+            self.headers['Authorization'] = 'Bearer ' + self.key
 
     def call(self, method, path, **kwargs):
         headers = dict(self.headers)
