@@ -23,3 +23,6 @@ B planı: 429 kota hatasında doğrudan yedek fotoğrafa geçilir. Diğer görse
 
 
 Yedek görseller artık dört farklı CC0/kamu malı stadyum ve takım arşiv fotoğrafından seçilir. Kullanılan görseller kullanilan_yedek_gorseller.txt içinde saklanır; havuz tüketilmeden aynı fotoğraf seçilmez. Havuz tükendiğinde yeni döngü başlar, son fotoğraf arka arkaya tekrar edilmez. Görsel indirilemezse kullanılmamış başka fotoğraf denenir. Önizleme ve başarısız Instagram yüklemesi görsel geçmişini tüketmez. Kaynak bağlantısı her görsele göre değişir; fotoğraflar güncel olay fotoğrafı olarak sunulmaz.
+
+
+Güncel görsel sırası (önceki öncelik açıklamalarının yerine): 1) Habere göre AI görsel üretimi, en fazla 45 saniye. 2) İsimle eşleşen fotoğraf havuzu ve Wikimedia Commons üzerinde kişi/Beşiktaş eşleşmeli internet araması (CC0/kamu malı). 3) Aynı haberin og:image/twitter:image kapak fotoğrafı. Rastgele stadyum fotoğrafı bu akışta artık kullanılmaz. Tüm kaynaklar başarısızsa haber kaydedilmez. Haber sitesi görselinin internette bulunması kullanım lisansı garantisi değildir.
