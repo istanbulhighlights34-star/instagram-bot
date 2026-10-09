@@ -335,6 +335,11 @@ def run(matches, now, dry_run=False, publish_match=None):
         card(match,kind,players,path)
         caption = ('MAÇ SONUCU 🦅' if kind=='result' else 'MAÇ GÜNÜ 🦅')+'\n\n'+' — '.join(team_name(t) for t in match['teams'])
         caption += '\n'+(' : '.join(t['score'] for t in match['teams']) if kind=='result' else match['start'].astimezone(ISTANBUL).strftime('%d.%m.%Y %H:%M'))
+        if kind == 'result':
+            own = [t for t in match['teams'] if t['id'] in {'BES', '1895'}]
+            opponents = [t for t in match['teams'] if t['id'] not in {'BES', '1895'}]
+            if len(own) == len(opponents) == 1 and int(own[0]['score']) > int(opponents[0]['score']):
+                caption += '\n\nGalibiyet bizim! 💪🦅'
         if players:
             caption += '\n\nİlk 11: '+', '.join(players)
         motto = None
