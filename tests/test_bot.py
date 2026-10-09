@@ -105,7 +105,7 @@ class BotTests(unittest.TestCase):
             with patch('bot.multiprocessing.get_context', return_value=context):
                 self.assertFalse(bot.generate_ai_image('Haber', path))
             worker.terminate.assert_called_once()
-            self.assertEqual(worker.join.call_args_list[0].kwargs['timeout'], 45)
+            self.assertEqual(worker.join.call_args_list[0].kwargs['timeout'], 180)
             self.assertFalse(path.exists())
 
 
