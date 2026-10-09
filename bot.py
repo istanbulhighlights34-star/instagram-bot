@@ -49,7 +49,6 @@ def get_latest_unposted_news():
                 if link not in posted:
                     title = entry.title
                     summary = entry.get('summary', title)
-                    
                     image_url = None
                     if 'media_content' in entry and len(entry.media_content) > 0:
                         image_url = entry.media_content[0]['url']
@@ -57,49 +56,37 @@ def get_latest_unposted_news():
                         for item in entry.links:
                             if 'image' in item.get('type', ''):
                                 image_url = item.get('href')
-                    
                     if not image_url:
                         image_url = "https://upload.wikimedia.org/wikipedia/commons/2/22/Besiktas_JK_Logo.svg"
-
                     return {"title": title, "summary": summary, "link": link, "image_url": image_url}
-        except BaseException as e:
-            print(f"Hata: {feed_url} okunamadı. ({e})")
-    
+        except Exception:
+            pass
     return None
 
 def generate_caption(title, summary):
-    print("Gemini API metni hazırlıyor...")
+    print("Gemini API metni hazırlıyor...", flush=True)
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
-        prompt = f"""
-        Sen koyu bir Beşiktaş taraftarı ve çok takipçili bir Instagram spor sayfasının yöneticisisin.
-        Aşağıdaki haberi okuyup, Instagram'da paylaşmak için samimi, enerjik, ateşli ve takipçilere soru soran bir dil ile yeniden yaz. 
-        Lütfen metnin sonuna mutlaka #Beşiktaş, #BJK, #KaraKartal gibi popüler etiketleri ekle. 
-        Metin doğrudan kopyalanıp Instagram'a yapıştırılacak formatta olmalı. Sadece paylaşılacak metni ver.
+        prompt = f"""Sen koyu bir Beşiktaş taraftarı ve çok takipçili bir Instagram spor sayfasının yöneticisisin. Aşağıdaki haberi okuyup, Instagram'da paylaşmak için samimi, enerjik, ateşli ve takipçilere soru soran bir dil ile yeniden yaz. Lütfen metnin sonuna mutlaka #Beşiktaş, #BJK, #KaraKartal gibi popüler etiketleri ekle. Metin doğrudan kopyalanıp Instagram'a yapıştırılacak formatta olmalı. Sadece paylaşılacak metni ver.
 
-        Haber Başlığı: {title}
-        Haber Detayı: {summary}
-        """
+Haber Başlığı: {title}
+Haber Detayı: {summary}"""
         
         for attempt in range(2):
             try:
-                response = client.models.generate_content(
-                    model='gemini-3.8-flash',
-                    contents=prompt,
-                )
+                response = client.models.generate_content(model='gemini-3.8-flash', contents=prompt)
                 return response.text.strip()
-            except BaseException as e:
-                print(f"Gemini API çok yoğun veya koptu. (Deneme {attempt+1}/2)...")
+            except Exception as e:
+                print(f"Gemini API çok yoğun. (Deneme {attempt+1}/2)", flush=True)
                 time.sleep(5)
-                
-    except BaseException as e:
-        print(f"Yapay zeka metin üretirken tamamen koptu: {e}")
+    except Exception as e:
+        print(f"Yapay zeka metin üretirken hata verdi: {e}", flush=True)
         
-    print("Yapay zeka yanıt vermedi! Telif riski olmaması için paylaşım İPTAL edildi.")
+    print("Telif riski olmaması için paylaşım İPTAL edildi.", flush=True)
     return None
 
 def generate_ai_image(title):
-    print("Yapay Zeka (Imagen 3) habere özel özgün görsel çiziyor...")
+    print("Yapay Zeka (Imagen 3) habere özel özgün görsel çiziyor...", flush=True)
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
         prompt = f"A highly detailed, cinematic, energetic sports illustration representing Beşiktaş football club. Theme: {title}. Black and white colors with subtle red accents. No text or words in the image. High quality, photorealistic but artistic."
@@ -109,29 +96,24 @@ def generate_ai_image(title):
                 result = client.models.generate_images(
                     model='imagen-3.0-generate-001',
                     prompt=prompt,
-                    config=types.GenerateImagesConfig(
-                        number_of_images=1,
-                        output_mime_type="image/jpeg",
-                        aspect_ratio="1:1"
-                    )
+                    config=types.GenerateImagesConfig(number_of_images=1, output_mime_type="image/jpeg", aspect_ratio="1:1")
                 )
                 for generated_image in result.generated_images:
                     with open(TEMP_IMAGE, 'wb') as f:
                         f.write(generated_image.image.image_bytes)
-                print("Özgün görsel başarıyla çizildi!")
+                print("Özgün görsel başarıyla çizildi!", flush=True)
                 return True
-            except BaseException as e:
-                print(f"Görsel oluşturulamadı (Bağlantı Koptu/Yoğun). (Deneme {attempt+1}/2)")
+            except Exception as e:
+                print(f"Görsel oluşturulamadı (Yoğun). (Deneme {attempt+1}/2)", flush=True)
                 time.sleep(3)
-                
-    except BaseException as e:
-        print(f"Yapay zeka görsel motoru çöktü: {e}")
+    except Exception as e:
+        print(f"Yapay zeka görsel motoru hata verdi: {e}", flush=True)
         
-    print("Yapay Zeka görsel çizemedi. Orijinal haber görseline (B Planı) dönülüyor.")
+    print("Yapay Zeka görsel çizemedi. Orijinal haber görseline (B Planı) dönülüyor.", flush=True)
     return False
 
 def download_image(url):
-    print(f"Orijinal resim indiriliyor: {url}")
+    print(f"Orijinal resim indiriliyor: {url}", flush=True)
     try:
         response = requests.get(url, stream=True, timeout=15)
         if response.status_code == 200:
@@ -139,50 +121,40 @@ def download_image(url):
                 for chunk in response.iter_content(1024):
                     f.write(chunk)
             return True
-    except BaseException as e:
-        print(f"Orijinal resim indirilemedi: {e}")
+    except Exception:
+        pass
     return False
 
 def post_news():
-    print("Yeni haber kontrolü yapılıyor...")
+    print("Yeni haber kontrolü yapılıyor...", flush=True)
     news = get_latest_unposted_news()
-    
     if not news:
-        print("Paylaşılacak yeni haber bulunamadı.")
+        print("Paylaşılacak yeni haber bulunamadı.", flush=True)
         return
 
-    print(f"Yeni Haber Bulundu: {news['title']}")
+    print(f"Yeni Haber Bulundu: {news['title']}", flush=True)
     caption = generate_caption(news['title'], news['summary'])
-    
     if not caption:
-        print("İşlem iptal edildi. Bir sonraki programlı saatte tekrar denenecek.")
+        print("İşlem iptal edildi. Bir sonraki programlı saatte tekrar denenecek.", flush=True)
         return
         
-    image_ready = generate_ai_image(news['title'])
-    if not image_ready:
-        image_ready = download_image(news['image_url'])
+    if not generate_ai_image(news['title']):
+        download_image(news['image_url'])
 
-    if image_ready:
-        print("Instagram'a VIP giriş yapılıyor (Güvenli Anahtar ile)...")
-        try:
-            cl = Client()
+    print("Instagram'a VIP giriş yapılıyor (Güvenli Anahtar ile)...", flush=True)
+    try:
+        cl = Client()
+        if IG_SESSION:
+            cl.set_settings(json.loads(IG_SESSION))
+        else:
+            cl.login(IG_USERNAME, IG_PASSWORD)
             
-            # Eğer VIP biletimiz varsa sadece onu cihaza tanıtıp geçiyoruz.
-            # Kesinlikle .login() (şifre soran kapı) kullanmıyoruz!
-            if IG_SESSION:
-                cl.set_settings(json.loads(IG_SESSION))
-            else:
-                cl.login(IG_USERNAME, IG_PASSWORD)
-                
-            print("Fotoğraf yükleniyor...")
-            cl.photo_upload(TEMP_IMAGE, caption)
-            print("BAŞARILI! Haber paylaşıldı.")
-            save_posted_news(news['link'])
-            
-        except BaseException as e:
-            print(f"Instagram'a yüklenirken hata oluştu: {e}")
-    else:
-        print("Hiçbir resim bulunamadığı için paylaşılamadı.")
+        print("Fotoğraf yükleniyor...", flush=True)
+        cl.photo_upload(TEMP_IMAGE, caption)
+        print("BAŞARILI! Haber paylaşıldı.", flush=True)
+        save_posted_news(news['link'])
+    except Exception as e:
+        print(f"Instagram'a yüklenirken hata oluştu: {e}", flush=True)
 
 if __name__ == "__main__":
     post_news()
