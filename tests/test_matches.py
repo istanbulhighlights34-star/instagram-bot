@@ -30,15 +30,40 @@ class MatchTests(unittest.TestCase):
         with patch('matches.get',return_value={'rosters':[roster]}):self.assertEqual(matches.starters(self.match),[])
         roster['roster'].append({'starter':True,'athlete':{'displayName':'10'}})
         with patch('matches.get',return_value={'rosters':[roster]}):self.assertEqual(len(matches.starters(self.match)),11)
-    def test_basketball_final_requires_completed_clock_and_no_tie(self):
-        h={'Live':False,'Quarter':'','GameTime':'40:00','RemainingPartialTime':'00:00','ScoreA':'77','ScoreB':'83'}
-        self.assertTrue(matches.basketball_finished(h))
-        for changes in ({'Live':True},{'GameTime':'39:59'},{'ScoreA':'83'},{'Quarter':'4'},{'RemainingPartialTime':'01:00'}):
-            self.assertFalse(matches.basketball_finished(h|changes))
+    def test_basketball_final_requires_explicit_finished_status(self):
+        m={'teams':[{'score':'90'},{'score':'81'}]}
+        html='<div class="widget-basketball-match-details-header__match-status--fullTime widget-basketball-match-details-header__match-status--postGame">MS</div><span class="widget-basketball-match-details-header__score--home">90</span><span class="widget-basketball-match-details-header__score--away">81</span>'
+        self.assertTrue(matches.confirm_basketball_result(m,matches.MatchHTML(html).root))
+        self.assertFalse(matches.confirm_basketball_result(m,matches.MatchHTML(html.replace('--fullTime','--inGame')).root))
+        self.assertFalse(matches.confirm_basketball_result(m,matches.MatchHTML(html.replace('>90<','>91<')).root))
+    def test_basketball_fixture_utc_and_teams(self):
+        html='<tr class="p0c-team-matches__row"><td><a class="p0c-team-matches__button p0c-team-matches__button--start-time" href="https://www.mackolik.com/basketbol/mac/test/id" data-start-timestamp="1791730800">11.10</a>'
+        for side,team,name in [('home','other','Türk Telekom'),('away',matches.BASKET_TEAM,'Beşiktaş')]:
+            html+=f'<div class="p0c-team-matches__team--{side}"><a class="p0c-team-matches__team-name" href="https://www.mackolik.com/basketbol/takim/{team}"><span class="p0c-team-matches__team-full-name">{name}</span></a></div>'
+        html+='</td></tr>'
+        m=matches.parse_basketball_fixture(matches.MatchHTML(html).root)[0]
+        self.assertEqual(m['start'].astimezone(matches.ISTANBUL).strftime('%Y-%m-%d %H:%M'),'2026-10-11 18:00')
+        self.assertEqual([t['id'] for t in m['teams']],['other','BES'])
+        self.assertTrue(m['scheduled'])
     def test_missing_lineup_does_not_publish(self):
         with tempfile.TemporaryDirectory() as directory, patch('matches.STATE',Path(directory)/'state.json'), patch('matches.starters',return_value=[]),patch('matches.bot.publish') as publish:
             matches.run([self.match],self.now)
             publish.assert_not_called()
+    def test_preview_does_not_publish_or_consume_history(self):
+        self.match.update(sport='BASKETBOL', teams=[{'id':'BES','name':'Beşiktaş'},{'id':'other','name':'Rakip'}])
+        with tempfile.TemporaryDirectory() as directory:
+            state=Path(directory)/'state.json'
+            with patch('matches.STATE',state),patch('matches.card'),patch('matches.bot.publish') as publish,patch('pathlib.Path.write_text'):
+                matches.run([self.match],self.now,dry_run=True)
+                publish.assert_not_called()
+                self.assertFalse(state.exists())
+    def test_failed_upload_does_not_consume_history(self):
+        self.match.update(sport='BASKETBOL', teams=[{'id':'BES','name':'Beşiktaş'},{'id':'other','name':'Rakip'}])
+        with tempfile.TemporaryDirectory() as directory:
+            state=Path(directory)/'state.json'
+            with patch('matches.STATE',state),patch('matches.card'),patch('matches.bot.publish',side_effect=RuntimeError('Upload failed')):
+                with self.assertRaises(RuntimeError):matches.run([self.match],self.now)
+                self.assertFalse(state.exists())
     def test_dedup(self):
         with tempfile.TemporaryDirectory() as directory:
             state=Path(directory)/'state.json';state.write_text('{"test:pre":{}}')
