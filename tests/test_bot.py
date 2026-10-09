@@ -9,6 +9,8 @@ import bot
 
 class BotTests(unittest.TestCase):
     def setUp(self):
+        holiday_guard = patch("special_days.first_post_pending", return_value=False)
+        holiday_guard.start(); self.addCleanup(holiday_guard.stop)
         # Tests must never emit production status to the Actions summary.
         self.summary_patch = patch.dict('os.environ', {'GITHUB_STEP_SUMMARY': ''})
         self.summary_patch.start()

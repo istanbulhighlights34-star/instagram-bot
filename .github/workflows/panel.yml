@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: main
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.14'

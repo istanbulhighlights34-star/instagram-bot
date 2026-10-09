@@ -765,6 +765,11 @@ def render_free_design(source, destination, headline):
 
 
 def post_news(dry_run=False):
+    if not dry_run:
+        from special_days import first_post_pending
+        if first_post_pending():
+            report_outcome('Günün ilk özel paylaşımı bekleniyor; haber paylaşımı ertelendi.')
+            return
     if not os.getenv('GEMINI_API_KEY'):
         raise RuntimeError('GEMINI_API_KEY eksik.')
     news = get_latest_unposted_news()

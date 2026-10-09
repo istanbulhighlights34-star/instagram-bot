@@ -18,6 +18,8 @@ class MemoryStore:
 
 class PanelTests(unittest.TestCase):
     def setUp(self):
+        holiday_guard = patch("special_days.first_post_pending", return_value=False)
+        holiday_guard.start(); self.addCleanup(holiday_guard.stop)
         self.env = patch.dict(os.environ, {'PANEL_PASSWORD':'test-only-password','PANEL_SESSION_SECRET':'test-only-session','SUPABASE_URL':'https://example.supabase.co','SUPABASE_SERVICE_ROLE_KEY':'test-only-key','IG_USERNAME':'test','IG_PASSWORD':'test','IG_SESSION':'{}'})
         self.env.start()
         from panel.app import create_app

@@ -12,7 +12,7 @@ on:
         default: true
   pull_request:
   push:
-    paths: ['bot.py', 'matches.py', 'requirements.txt', 'tests/**', '.github/workflows/bot.yml', '.github/workflows/matches.yml']
+    paths: ['bot.py', 'matches.py', 'special_days.py', 'media/special-calendar.json', '.github/workflows/special-days.yml', 'requirements.txt', 'tests/**', '.github/workflows/bot.yml', '.github/workflows/matches.yml']
 
 permissions:
   contents: read
@@ -41,6 +41,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: main
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.14'

@@ -50,6 +50,10 @@ def run(store=None, client_factory=Client):
         return
     if hasattr(store, 'metadata'):
         prepare_next_video(store)
+    from special_days import first_post_pending
+    if first_post_pending():
+        print('Günün ilk özel paylaşımı bekleniyor; panel yayını ertelendi.')
+        return
     candidates = store.rows(status='eq.queued', order='created_at.asc', limit='1')
     if not candidates:
         print('Onaylanmış panel gönderisi yok.')

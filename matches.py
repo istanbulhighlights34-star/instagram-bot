@@ -307,6 +307,11 @@ def choose_motto(away, state):
 
 
 def run(matches, now, dry_run=False, publish_match=None):
+    if not dry_run:
+        from special_days import first_post_pending
+        if first_post_pending(now):
+            bot.report_outcome('Günün ilk özel paylaşımı bekleniyor; maç paylaşımı ertelendi.')
+            return
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
     for match in matches:
         kind = phase(match,now)

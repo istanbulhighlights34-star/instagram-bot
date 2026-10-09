@@ -21,6 +21,9 @@ class VideoStore(MemoryStore):
     def remove_raw_video(self, job_id): self.raw.pop(job_id,None)
 
 class VideoTests(unittest.TestCase):
+    def setUp(self):
+        holiday_guard = patch("special_days.first_post_pending", return_value=False)
+        holiday_guard.start(); self.addCleanup(holiday_guard.stop)
     def test_real_video_processing_for_feed_and_reel_preserves_audio(self):
         with tempfile.TemporaryDirectory() as folder:
             source=Path(folder)/'input.mp4'

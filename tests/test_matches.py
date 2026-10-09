@@ -7,6 +7,8 @@ import matches
 
 class MatchTests(unittest.TestCase):
     def setUp(self):
+        holiday_guard = patch("special_days.first_post_pending", return_value=False)
+        holiday_guard.start(); self.addCleanup(holiday_guard.stop)
         self.now=datetime(2026,10,9,12,tzinfo=timezone.utc)
         self.match={'id':'test','start':self.now+timedelta(minutes=30),'final':False,'scheduled':True,'sport':'FUTBOL'}
     def test_pre_window(self):

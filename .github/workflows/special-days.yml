@@ -1,20 +1,26 @@
-name: Beşiktaş Maç Paylaşımları
+name: Özel Gün Paylaşımları
 on:
   schedule:
-    - cron: '2-57/5 * * * *'
+    # Turkey 08:00 then hourly retries; 10 November starts at 08:30.
+    - cron: '0 5-19 * * *'
+    - cron: '30,50 5 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
         description: 'Instagram paylaşmadan önizleme oluştur'
         type: boolean
         default: true
+      preview_date:
+        description: 'Yalnızca önizleme tarihi (YYYY-MM-DD); boşsa bugün'
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
   group: instagram-bot-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  matches:
+  special:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -28,35 +34,38 @@ jobs:
         with:
           python-version: '3.14'
       - run: pip install -r requirements.txt
-      - name: Maçları kontrol et
-        timeout-minutes: 7
+      - name: Günün ilk özel paylaşımını hazırla
         env:
           IG_USERNAME: ${{ secrets.IG_USERNAME }}
           IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
           IG_SESSION: ${{ secrets.IG_SESSION }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          PREVIEW_DATE: ${{ inputs.preview_date }}
         run: |
-          echo 'Kapsam: erkek futbol A takımı ve erkek basketbol A takımı; sağlayıcıların yayımladığı maçlar.' >> "$GITHUB_STEP_SUMMARY"
           if [ "$DRY_RUN" = "true" ]; then
-            python matches.py --dry-run
+            if [ -n "$PREVIEW_DATE" ]; then
+              python special_days.py --dry-run --date "$PREVIEW_DATE"
+            else
+              python special_days.py --dry-run
+            fi
           else
-            python matches.py
+            python special_days.py
           fi
       - name: Önizlemeyi kaydet
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: mac-onizleme
+          name: ozel-gun-onizleme
           path: preview/
           if-no-files-found: ignore
-      - name: Maç paylaşım geçmişini kaydet
+      - name: Özel gün paylaşım geçmişini kaydet
         if: always() && (github.event_name == 'schedule' || !inputs.dry_run)
         run: |
-          if [ ! -f paylasilan_maclar.json ]; then exit 0; fi
           git config user.name 'Instagram Bot'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add paylasilan_maclar.json
+          if [ -f paylasilan_ozel_gunler.json ]; then git add paylasilan_ozel_gunler.json; fi
+          git add media/special-calendar.json
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m 'Save published match history'
+          git commit -m 'Save special day publication history and verified calendar'
           git pull --rebase origin main
           git push origin HEAD:main
