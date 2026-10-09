@@ -154,11 +154,17 @@ class BotTests(unittest.TestCase):
 
     def test_caption_club_tags_before_person_and_no_links(self):
         caption = bot.format_caption('Miretti hazır! https://news.test/a #Miretti #BJK #Miretti')
-        self.assertTrue(caption.endswith('#Beşiktaş #BJK #KaraKartal #Miretti'))
+        self.assertTrue(caption.endswith('#Beşiktaş #BJK #KaraKartal #Miretti #BeşiktaşHaberleri'))
         self.assertNotIn('https://', caption)
         self.assertEqual(caption.count('#Miretti'), 1)
         self.assertLessEqual(len(bot.format_caption('x' * 3000 + ' #Miretti')), 2200)
 
+
+    def test_topic_tags_and_five_tag_limit(self):
+        import re
+        caption = bot.format_caption('Oh için teklif! #HyeonGyuOh #Italiano #BaşkaKişi', 'Transfer teklifi')
+        self.assertEqual(re.findall(r'#[\w]+', caption), ['#Beşiktaş', '#BJK', '#KaraKartal', '#HyeonGyuOh', '#TransferHaberleri'])
+        self.assertTrue(bot.format_caption('Takım idmana çıktı').endswith('#Futbol #BeşiktaşAntrenman'))
 
     def test_player_match_and_rotation(self):
         with tempfile.TemporaryDirectory() as folder:
