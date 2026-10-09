@@ -20,3 +20,6 @@ Metni yeniden yazmak veya yapay zekâyla görsel üretmek telif garantisi sağla
 
 
 B planı: 429 kota hatasında doğrudan yedek fotoğrafa geçilir. Diğer görsel hatalarında en fazla üç deneme yapılır; başarısızlık veya istisna sonrası yedek fotoğraf kullanılır. Kaynak: https://commons.wikimedia.org/wiki/File:Vodafone_Park,_Istanbul_(from_outside).jpg — Olos88, CC0. Paylaşım metninde temsili arşiv fotoğrafı olduğu ve kaynak belirtilir. Yedek fotoğraf indirilemiyorsa görselsiz Instagram fotoğraf paylaşımı yapılamaz; haber kaydedilmez. Önizleme modu Instagram'a paylaşım yapmaz.
+
+
+Yedek görseller artık dört farklı CC0/kamu malı stadyum ve takım arşiv fotoğrafından seçilir. Kullanılan görseller kullanilan_yedek_gorseller.txt içinde saklanır; havuz tüketilmeden aynı fotoğraf seçilmez. Havuz tükendiğinde yeni döngü başlar, son fotoğraf arka arkaya tekrar edilmez. Görsel indirilemezse kullanılmamış başka fotoğraf denenir. Önizleme ve başarısız Instagram yüklemesi görsel geçmişini tüketmez. Kaynak bağlantısı her görsele göre değişir; fotoğraflar güncel olay fotoğrafı olarak sunulmaz.
