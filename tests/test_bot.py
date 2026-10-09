@@ -13,6 +13,9 @@ class BotTests(unittest.TestCase):
         self.summary_patch = patch.dict('os.environ', {'GITHUB_STEP_SUMMARY': ''})
         self.summary_patch.start()
         self.addCleanup(self.summary_patch.stop)
+        self.catalog_patch = patch.object(bot, 'PLAYER_MEDIA_CATALOG', Path('/tmp/missing-test-player-catalog'))
+        self.catalog_patch.start()
+        self.addCleanup(self.catalog_patch.stop)
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     @patch('bot.time.sleep')
@@ -106,6 +109,26 @@ class BotTests(unittest.TestCase):
         self.assertNotIn('https://', caption)
         self.assertEqual(caption.count('#Miretti'), 1)
         self.assertLessEqual(len(bot.format_caption('x' * 3000 + ' #Miretti')), 2200)
+
+
+    def test_player_match_and_rotation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            media = root / 'players'
+            player = media / 'miretti'
+            player.mkdir(parents=True)
+            for filename in ('one.jpg', 'two.jpg'):
+                Image.new('RGB', (80, 80), 'black').save(player / filename)
+            catalog = root / 'players.json'
+            catalog.write_text('{"players":[{"name":"Fabio Miretti","aliases":["Miretti"],"folder":"miretti"}]}')
+            with patch.object(bot, 'PLAYER_MEDIA_ROOT', media), patch.object(bot, 'PLAYER_MEDIA_CATALOG', catalog), patch.object(bot, 'PLAYER_MEDIA_HISTORY', root / 'history.json'):
+                first = bot.choose_player_photo("Beşiktaş'ta Miretti, 11'e göz kırptı!", root / 'image.jpg')
+                self.assertEqual(first['status'], 'ready')
+                bot.save_player_photo(first)
+                second = bot.choose_player_photo('Miretti hazır', root / 'image.jpg')
+                self.assertNotEqual(first['key'], second['key'])
+                self.assertEqual(bot.choose_player_photo('Mirettininho transferi', root / 'image.jpg')['status'], 'no-match')
+
 
 if __name__ == '__main__':
     unittest.main()
