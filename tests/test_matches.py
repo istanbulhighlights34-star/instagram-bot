@@ -64,6 +64,18 @@ class MatchTests(unittest.TestCase):
             with patch('matches.STATE',state),patch('matches.card'),patch('matches.bot.publish',side_effect=RuntimeError('Upload failed')):
                 with self.assertRaises(RuntimeError):matches.run([self.match],self.now)
                 self.assertFalse(state.exists())
+    def test_mottos_cycle_before_repeating(self):
+        state={}
+        phrases=[]
+        for index in range(len(matches.MOTTOS['away'])):
+            phrase=matches.choose_motto(True,state)
+            phrases.append(phrase)
+            state[str(index)]={'motto':phrase,'published_at':f'2026-10-{index+1:02d}'}
+        self.assertEqual(len(set(phrases)),len(matches.MOTTOS['away']))
+        self.assertNotEqual(matches.choose_motto(True,state),phrases[-1])
+    def test_mottos_match_venue(self):
+        self.assertIn(matches.choose_motto(True,{}),matches.MOTTOS['away'])
+        self.assertIn(matches.choose_motto(False,{}),matches.MOTTOS['home'])
     def test_dedup(self):
         with tempfile.TemporaryDirectory() as directory:
             state=Path(directory)/'state.json';state.write_text('{"test:pre":{}}')
