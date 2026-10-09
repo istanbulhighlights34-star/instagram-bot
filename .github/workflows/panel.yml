@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: '3.14'
       - run: pip install -r requirements.txt
-      - name: Yalnızca panelden onaylanan fotoğrafı paylaş
+      - name: Video önizlemelerini hazırla ve onaylanan gönderileri paylaş
         env:
           PREPARE_PREVIEWS: ${{ github.event_name == 'push' }}
           CHECK_ONLY: ${{ github.event_name == 'push' }}
