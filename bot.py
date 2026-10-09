@@ -662,6 +662,37 @@ def download_web_image(news, destination):
     return download_commons_image(news, destination)
 
 
+def claw_mark(size, opacity):
+    from PIL import ImageOps
+    asset = Path(__file__).resolve().parent / 'media' / 'claw-logo.b64'
+    with Image.open(io.BytesIO(base64.b64decode(asset.read_text(), validate=False))) as source:
+        # Interpret the supplied dark mark as alpha; white paper stays transparent.
+        alpha = ImageOps.invert(source.convert('L'))
+        alpha = alpha.point(lambda value: 0 if value < 25 else min(255, round(value * 255 / 210)))
+        box = alpha.getbbox()
+        if not box:
+            raise RuntimeError('Pençe filigranı boş.')
+        alpha = alpha.crop(box)
+        alpha.thumbnail(size, Image.Resampling.LANCZOS)
+        alpha = alpha.point(lambda value: round(value * opacity))
+        mark = Image.new('RGBA', alpha.size, 'white')
+        mark.putalpha(alpha)
+        return mark
+
+
+def apply_claw_branding(source, destination, framed=True):
+    with Image.open(source) as original:
+        canvas = original.convert('RGBA')
+    width, height = canvas.size
+    corner = claw_mark((round(width * .075), round(height * .075)), .95)
+    canvas.alpha_composite(corner, (width - corner.width - round(width * .03), round(height * .012)))
+    watermark = claw_mark((round(width * .23), round(height * .23)), .20)
+    photo_bottom = round(height * .77) if framed else height - round(height * .04)
+    canvas.alpha_composite(watermark, (width - watermark.width - round(width * .04), photo_bottom - watermark.height))
+    canvas.convert('RGB').save(destination, 'JPEG', quality=95)
+    return True
+
+
 def render_free_design(source, destination, headline):
     """Compose a photo card locally; no image-generation API call."""
     from PIL import ImageDraw, ImageFont, ImageOps
@@ -688,11 +719,7 @@ def render_free_design(source, destination, headline):
     draw.rectangle((0, 0, 1080, 110), fill='#101216')
     draw.rectangle((0, 104, 1080, 110), fill='#cc2633')
     draw.text((40, 24), 'BEŞİKTAŞ', font=font(46), fill='white')
-    draw.text((695, 39), 'KARA KARTAL', font=font(23), fill='#dddddd')
-    # Original eagle-inspired wing motif, separate from the player's face.
-    draw.polygon([(1015, 55), (952, 18), (968, 45), (938, 32), (982, 70),
-                  (1000, 66), (1015, 88), (1030, 66), (1048, 70),
-                  (1070, 32), (1050, 45), (1062, 18)], fill='white')
+    draw.text((695, 39), 'kartalpenche', font=font(23), fill='#dddddd')
     draw.rectangle((0, 850, 1080, 1080), fill='#101216')
     draw.rectangle((40, 879, 110, 885), fill='#cc2633')
     text = clean_text(headline)[:160]
@@ -749,6 +776,9 @@ def post_news(dry_run=False):
                 image_path = designed_path
         except Exception as exc:
             LOG.warning('Yerel tasarım hatası (%s); orijinal fotoğraf korunuyor.', type(exc).__name__)
+        branded_path = Path(folder) / 'filigranli.jpg'
+        apply_claw_branding(image_path, branded_path, framed=image_path == designed_path)
+        image_path = branded_path
         if dry_run:
             import shutil
             preview = Path('preview')
