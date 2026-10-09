@@ -290,6 +290,10 @@ def run(matches, now, dry_run=False):
         caption += '\n'+(' : '.join(t['score'] for t in match['teams']) if kind=='result' else match['start'].astimezone(ISTANBUL).strftime('%d.%m.%Y %H:%M'))
         if players:
             caption += '\n\nİlk 11: '+', '.join(players)
+        if kind == 'pre':
+            away = match['teams'][1]['id'] in {'BES', '1895'}
+            motto = 'Gidilecek Çok Deplasman Var!' if away else 'Sen Ben Yok, Beşiktaş Var!'
+            caption += '\n\n' + motto + ' 💪🦅'
         caption += '\n\n#Beşiktaş #BJK #KaraKartal '+('#Basketbol #MaçGünü' if match['sport']=='BASKETBOL' else '#Futbol #MaçGünü')
         if dry_run:
             path.with_suffix('.txt').write_text(caption)
