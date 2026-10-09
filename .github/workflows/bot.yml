@@ -23,27 +23,27 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.14'
       - run: pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
 
   post:
     needs: test
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.14'
       - run: pip install -r requirements.txt
       - name: Botu çalıştır
         env:
@@ -51,8 +51,8 @@ jobs:
           IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
           IG_SESSION: ${{ secrets.IG_SESSION }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_TEXT_MODEL: ${{ vars.GEMINI_TEXT_MODEL || 'gemini-1.5-flash' }}
-          GEMINI_IMAGE_MODEL: ${{ vars.GEMINI_IMAGE_MODEL || 'imagen-3.0-generate-001' }}
+          GEMINI_TEXT_MODEL: gemini-3.8-flash
+          GEMINI_IMAGE_MODEL: gemini-nano-banana-2.1
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
           if [ "$DRY_RUN" = "true" ]; then
@@ -62,7 +62,7 @@ jobs:
           fi
       - name: Önizlemeyi kaydet
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: haber-onizleme
           path: preview/
