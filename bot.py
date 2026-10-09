@@ -85,7 +85,7 @@ def image_interaction(model, payload):
             try:
                 LOG.info('Görsel üretimi başladı: %s; deneme %s/3', model, attempt + 1)
                 interaction = client.interactions.create(
-                    model=model, input=prompt, store=False,
+                    model=model, input=prompt, store=False, timeout=90,
                     response_format={'type': 'image', 'aspect_ratio': '1:1',
                                      'image_size': '1K', 'mime_type': 'image/jpeg'})
                 output = interaction.output_image
