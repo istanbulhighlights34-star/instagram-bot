@@ -240,8 +240,8 @@ class ImageSearchTests(unittest.TestCase):
             with Image.open(dest) as image:
                 self.assertEqual(image.size, (1080, 1080))
                 self.assertIsNotNone(image.crop((940, 0, 1080, 110)).getbbox())
-                self.assertIsNotNone(image.crop((790, 540, 1080, 850)).getbbox())
-                self.assertEqual(image.getpixel((400, 400)), (0, 0, 0))
+                self.assertIsNotNone(image.crop((240, 300, 840, 950)).getbbox())
+                self.assertEqual(image.getpixel((40, 900)), (0, 0, 0))
 
     def test_private_image_urls_rejected(self):
         for url in ('http://127.0.0.1/a', 'http://localhost/a', 'http://10.0.0.1/a'):
