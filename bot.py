@@ -340,9 +340,13 @@ def publish(image_path, caption):
     session = os.getenv('IG_SESSION')
     if session:
         try:
-            client.set_settings(json.loads(session))
-        except (ValueError, TypeError):
-            raise RuntimeError('IG_SESSION geçerli oturum JSON verisi değil.') from None
+            settings = json.loads(session)
+            if not isinstance(settings, dict):
+                raise ValueError('Oturum sözlük biçiminde olmalı.')
+            client.set_settings(settings)
+        except (ValueError, TypeError, AttributeError):
+            LOG.warning('Kayıtlı Instagram oturumu okunamadı; kullanıcı adı ve şifreyle giriş deneniyor.')
+            client = Client()
     # set_settings tek başına giriş yapmaz; mevcut oturum login ile doğrulanır.
     client.login(username, password)
     result = client.photo_upload(str(image_path), caption)
