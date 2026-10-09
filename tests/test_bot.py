@@ -67,13 +67,23 @@ class BotTests(unittest.TestCase):
     def test_ai_error_uses_fallback_and_publishes(self):
         news = {'title': 'Başlık', 'summary': 'Özet', 'link': 'https://news.test/1'}
         for error in (False, RuntimeError('429 quota')):
-            with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', side_effect=error if isinstance(error, Exception) else None, return_value=False), patch('bot.download_fallback_image', return_value=True) as fallback, patch('bot.publish', return_value=456) as publish, patch('bot.save_posted_news') as save:
+            with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.generate_ai_image', side_effect=error if isinstance(error, Exception) else None, return_value=False), patch('bot.download_fallback_image', return_value={'title': 'Bjk Stadyum.jpg', 'source': 'https://commons.wikimedia.org/wiki/File:Bjk_Stadyum.jpg'}) as fallback, patch('bot.save_fallback_photo'), patch('bot.publish', return_value=456) as publish, patch('bot.save_posted_news') as save:
                 bot.post_news()
                 fallback.assert_called_once()
                 publish.assert_called_once()
-                self.assertIn('CC0', publish.call_args.args[1])
+                self.assertIn('Temsili arşiv fotoğrafı', publish.call_args.args[1])
                 self.assertNotIn('yapay zekâ ile üretilmiştir', publish.call_args.args[1])
                 save.assert_called_once_with(news['link'])
+
+
+    def test_rotation_excludes_used_and_last_at_boundary(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(bot, 'FALLBACK_HISTORY', Path(folder) / 'history.txt'):
+            bot.save_fallback_photo(bot.FALLBACK_PHOTOS[0])
+            self.assertNotIn(bot.FALLBACK_PHOTOS[0], bot.fallback_candidates())
+            for title in bot.FALLBACK_PHOTOS[1:]:
+                bot.save_fallback_photo(title)
+            self.assertNotIn(bot.FALLBACK_PHOTOS[-1], bot.fallback_candidates())
+            self.assertEqual(len(bot.fallback_candidates()), len(bot.FALLBACK_PHOTOS) - 1)
 
 if __name__ == '__main__':
     unittest.main()
