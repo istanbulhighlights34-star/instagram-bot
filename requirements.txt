@@ -1,0 +1,5 @@
+requests>=2.32,<3
+feedparser>=6,<7
+cloudscraper>=1.2.71,<2
+instagrapi>=2,<3
+Pillow>=10,<13
