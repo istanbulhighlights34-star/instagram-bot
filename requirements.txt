@@ -3,3 +3,4 @@ feedparser>=6,<7
 cloudscraper>=1.2.71,<2
 instagrapi>=2,<3
 Pillow>=10,<13
+google-genai
