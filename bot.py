@@ -71,12 +71,49 @@ def get_latest_unposted_news():
     return max(candidates, key=lambda item: item[0])[1] if candidates else None
 
 
+
+def image_interaction(model, payload):
+    from google import genai
+    from google.genai import types
+    key = os.getenv('GEMINI_API_KEY')
+    # SDK retries disabled: this function controls the three attempts.
+    client = genai.Client(api_key=key, http_options=types.HttpOptions(
+        timeout=90000, retry_options=types.HttpRetryOptions(attempts=1)))
+    prompt = payload['contents'][0]['parts'][0]['text']
+    try:
+        for attempt in range(3):
+            try:
+                interaction = client.interactions.create(
+                    model=model, input=prompt, store=False,
+                    response_format={'type': 'image', 'aspect_ratio': '1:1',
+                                     'image_size': '1K', 'mime_type': 'image/jpeg'})
+                output = interaction.output_image
+                if output and output.data:
+                    return {'candidates': [{'content': {'parts': [{
+                        'inlineData': {'mimeType': 'image/jpeg', 'data': output.data}
+                    }]}}]}
+                LOG.warning('Interactions boş görsel; deneme %s/3', attempt + 1)
+            except Exception as exc:
+                code = getattr(exc, 'code', None)
+                LOG.warning('Görsel Interactions API: %s HTTP %s; deneme %s/3',
+                            type(exc).__name__, code or 'bilinmiyor', attempt + 1)
+                if code and code not in (408, 429, 500, 502, 503, 504):
+                    return None
+            if attempt < 2:
+                time.sleep(10 * (attempt + 1))
+        return None
+    finally:
+        client.close()
+
+
 def gemini_request(model, payload, image=False):
     key = os.getenv('GEMINI_API_KEY')
     if not key:
         raise RuntimeError('GEMINI_API_KEY eksik.')
     if not re.fullmatch(r'[a-zA-Z0-9._-]+', model):
         raise RuntimeError('Geçersiz model adı.')
+    if image:
+        return image_interaction(model, payload)
     # Anahtar URL veya hata metinlerine yazılmaz.
     for attempt in range(3):
         try:
