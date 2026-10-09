@@ -685,56 +685,66 @@ def apply_claw_branding(source, destination, framed=True):
         canvas = original.convert('RGBA')
     width, height = canvas.size
     corner = claw_mark((round(width * .075), round(height * .075)), .95)
-    canvas.alpha_composite(corner, (width - corner.width - round(width * .03), round(height * .012)))
-    watermark = claw_mark((round(width * .23), round(height * .23)), .20)
-    photo_bottom = round(height * .77) if framed else height - round(height * .04)
-    canvas.alpha_composite(watermark, (width - watermark.width - round(width * .04), photo_bottom - watermark.height))
+    canvas.alpha_composite(corner, (width - corner.width - round(width * .025), round(height * .025)))
+    watermark = claw_mark((round(width * .56), round(height * .56)), .14)
+    photo_top = round(height * .13) if framed else 0
+    canvas.alpha_composite(watermark, ((width - watermark.width) // 2, photo_top + (height - photo_top - watermark.height) // 2))
     canvas.convert('RGB').save(destination, 'JPEG', quality=95)
     return True
 
 
+def letter_a_mark(name, size, white=False):
+    from PIL import ImageOps
+    asset = Path(__file__).resolve().parent / 'media' / (name + '.b64')
+    with Image.open(io.BytesIO(base64.b64decode(asset.read_text()))) as image:
+        image = image.convert('RGBA')
+        rgb = image.convert('RGB')
+        # Supplied symbols have white backgrounds; make that paper transparent.
+        alpha = ImageOps.invert(rgb.convert('L')) if white else rgb.getchannel('G').point(lambda v: 255 - v)
+        alpha = alpha.point(lambda v: 0 if v < 20 else min(255, v * 2))
+        box = alpha.getbbox()
+        image = image.crop(box); alpha = alpha.crop(box)
+        if white: image = Image.new('RGBA', image.size, 'white')
+        image.putalpha(alpha)
+        image.thumbnail(size, Image.Resampling.LANCZOS)
+        return image
+
+
 def render_free_design(source, destination, headline):
-    """Compose a photo card locally; no image-generation API call."""
-    from PIL import ImageDraw, ImageFont, ImageOps
-    fonts = ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-             '/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf',
-             '/System/Library/Fonts/Supplemental/Arial Bold.ttf']
+    """Compose branded photo without a lower headline panel or paid API."""
+    from PIL import ImageDraw, ImageFont, ImageOps, ImageChops
     def font(size):
-        for path in fonts:
-            if Path(path).is_file():
-                return ImageFont.truetype(path, size)
+        for path in ['/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-BoldOblique.ttf',
+                     '/usr/share/fonts/truetype/liberation2/LiberationSans-BoldItalic.ttf',
+                     '/System/Library/Fonts/Supplemental/Arial Bold Italic.ttf']:
+            if Path(path).is_file(): return ImageFont.truetype(path, size)
         raise RuntimeError('Türkçe tasarım yazı tipi bulunamadı.')
     with Image.open(source) as original:
         photo = ImageOps.exif_transpose(original).convert('RGB')
-        # Remove solid padding added while preparing the downloaded photo.
-        background = Image.new('RGB', photo.size, photo.getpixel((0, 0)))
-        from PIL import ImageChops
-        box = ImageChops.difference(photo, background).getbbox()
-        if box:
-            photo = photo.crop(box)
-        photo = ImageOps.fit(photo, (1080, 800))
-    canvas = Image.new('RGB', (1080, 1080), '#101216')
-    canvas.paste(photo, (0, 110))
+        box = ImageChops.difference(photo, Image.new('RGB', photo.size, photo.getpixel((0, 0)))).getbbox()
+        if box: photo = photo.crop(box)
+        photo = ImageOps.fit(photo, (1080, 940))
+    canvas = Image.new('RGBA', (1080, 1080), '#101216')
+    canvas.paste(photo, (0, 140))
     draw = ImageDraw.Draw(canvas)
-    draw.rectangle((0, 0, 1080, 110), fill='#101216')
-    draw.rectangle((0, 104, 1080, 110), fill='#cc2633')
-    draw.text((40, 24), 'BEŞİKTAŞ', font=font(46), fill='white')
-    draw.text((695, 39), 'kartalpenche', font=font(23), fill='#dddddd')
-    draw.rectangle((0, 850, 1080, 1080), fill='#101216')
-    draw.rectangle((40, 879, 110, 885), fill='#cc2633')
-    text = clean_text(headline)[:160]
-    for size in (42, 38, 34, 30):
-        face = font(size); lines = []; line = ''
-        for word in text.split():
-            candidate = (line + ' ' + word).strip()
-            if draw.textlength(candidate, font=face) > 995 and line:
-                lines.append(line); line = word
-            else:
-                line = candidate
-        if line: lines.append(line)
-        if len(lines) <= 3: break
-    draw.multiline_text((40, 907), '\n'.join(lines[:3]), font=face, fill='white', spacing=10)
-    canvas.save(destination, 'JPEG', quality=95)
+    # Metallic light panel and slanted red/black separators.
+    for y in range(140):
+        shade = 248 - round(y * .36)
+        draw.line((0, y, 535, y), fill=(shade, shade, shade))
+    draw.polygon([(480, 0), (555, 0), (500, 140), (425, 140)], fill='#b51226')
+    draw.polygon([(505, 0), (1080, 0), (1080, 140), (450, 140)], fill='#101216')
+    draw.line((0, 137, 1080, 137), fill='#d41e36', width=5)
+    draw.text((30, 43), 'BEŞİKTAŞ', font=font(50), fill='#17191d', stroke_width=1)
+    x = 560
+    for kind, value in [('text','K'),('icon','letter-a-black'),('text','RT'),('icon','letter-a-red'),('text','L')]:
+        if kind == 'text':
+            face = font(35); draw.text((x, 48), value, font=face, fill='white')
+            x += round(draw.textlength(value, font=face)) + 1
+        else:
+            mark = letter_a_mark(value, (45, 48), white=value.endswith('black'))
+            canvas.alpha_composite(mark, (x, 46)); x += mark.width + 3
+    draw.text((x + 3, 57), 'penche', font=font(25), fill='#e8e8e8')
+    canvas.convert('RGB').save(destination, 'JPEG', quality=95)
     return True
 
 
