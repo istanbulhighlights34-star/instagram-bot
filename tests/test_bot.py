@@ -16,6 +16,9 @@ class BotTests(unittest.TestCase):
         self.catalog_patch = patch.object(bot, 'PLAYER_MEDIA_CATALOG', Path('/tmp/missing-test-player-catalog'))
         self.catalog_patch.start()
         self.addCleanup(self.catalog_patch.stop)
+        self.article_patch = patch('bot.download_article_image', return_value=False)
+        self.article_patch.start()
+        self.addCleanup(self.article_patch.stop)
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
     @patch('bot.time.sleep')
@@ -128,6 +131,22 @@ class BotTests(unittest.TestCase):
                 second = bot.choose_player_photo('Miretti hazır', root / 'image.jpg')
                 self.assertNotEqual(first['key'], second['key'])
                 self.assertEqual(bot.choose_player_photo('Mirettininho transferi', root / 'image.jpg')['status'], 'no-match')
+
+
+
+    def test_article_image_metadata(self):
+        parser = bot.ArticleImageParser()
+        parser.feed('<meta content="/miretti.jpg" property="og:image"><meta name="twitter:image" content="/miretti.jpg">')
+        self.assertEqual(parser.images, ['/miretti.jpg'])
+
+    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
+    def test_article_cover_precedes_ai_and_fallback(self):
+        news = {'title': 'Miretti', 'summary': 'Özet', 'link': 'https://news.test/1'}
+        with patch('bot.get_latest_unposted_news', return_value=news), patch('bot.generate_caption', return_value='Metin'), patch('bot.download_article_image', return_value=True) as article, patch('bot.generate_ai_image') as ai, patch('bot.download_fallback_image') as fallback, patch('bot.publish', return_value=789), patch('bot.save_posted_news'):
+            bot.post_news()
+            article.assert_called_once()
+            ai.assert_not_called()
+            fallback.assert_not_called()
 
 
 if __name__ == '__main__':
