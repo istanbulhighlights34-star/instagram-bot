@@ -162,5 +162,35 @@ class BotTests(unittest.TestCase):
         self.assertEqual(calls, ['ai', 'web', 'article'])
 
 
+class ImageSearchTests(unittest.TestCase):
+    def test_surname_and_club_context(self):
+        result = {'t': 'Miretti Beşiktaş antrenmanı', 'purl': 'https://sports.example/a', 'murl': 'https://cdn.example/a.jpg'}
+        self.assertTrue(bot.image_matches_subject(result, 'Fabio Miretti'))
+        self.assertFalse(bot.image_matches_subject(dict(result, t='Miretti Juventus'), 'Fabio Miretti'))
+        self.assertFalse(bot.image_matches_subject(dict(result, t='Beşiktaş stadyumu'), 'Fabio Miretti'))
+
+    def test_full_size_image_result_and_download(self):
+        import html, json
+        data = {'t': 'Miretti Beşiktaş forma', 'purl': 'https://sports.example/miretti', 'murl': 'https://cdn.example/miretti.jpg'}
+        markup = '<a class="iusc" m="' + html.escape(json.dumps(data), quote=True) + '"></a>'
+        parser = bot.SearchImageParser(); parser.feed(markup)
+        self.assertEqual(parser.results, [data])
+        raw = io.BytesIO(); Image.new('RGB', (500, 500), 'white').save(raw, 'JPEG')
+        page = Mock(text=markup)
+        photo = Mock(); photo.__enter__ = Mock(return_value=photo); photo.__exit__ = Mock(return_value=False)
+        photo.iter_content.return_value = [raw.getvalue()]
+        news = {'title': 'Miretti', 'link': 'https://news.example/original'}
+        with tempfile.TemporaryDirectory() as folder, patch.object(bot, 'FALLBACK_HISTORY', Path(folder) / 'history'), patch('bot.requests.get', side_effect=[page, photo]):
+            dest = Path(folder) / 'image.jpg'
+            self.assertTrue(bot.download_search_image('Fabio Miretti', news, dest))
+            self.assertEqual(news['_web_image_url'], data['murl'])
+            self.assertTrue(dest.exists())
+
+    def test_private_image_urls_rejected(self):
+        for url in ('http://127.0.0.1/a', 'http://localhost/a', 'http://10.0.0.1/a'):
+            self.assertFalse(bot.public_photo_url(url))
+
+
 if __name__ == '__main__':
     unittest.main()
+
