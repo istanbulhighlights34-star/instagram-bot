@@ -5,10 +5,10 @@ En yeni paylaşılmamış RSS haberini seçer ve metni yeniden yazar. Metin üre
 ## Görsel seçimi
 
 1. Habere uygun yapay zekâ görseli: toplam en fazla 180 saniye. Hata veya süre aşımında sonraki kaynağa geçilir.
-2. İsimle eşleşen oyuncu fotoğraf havuzu; ardından Bing web aramasındaki farklı sitelerden oyuncu ve Beşiktaş konusuna uygun sayfaların görselleri. Site listesi Wikimedia ile sınırlandırılmaz. En fazla üç uygun sonuç sayfası denenir; sonuç alınamazsa Commons araması da denenir.
+2. İsimle eşleşen oyuncu fotoğraf havuzu; ardından Bing web aramasındaki farklı sitelerden oyuncu ve Beşiktaş konusuna uygun sayfaların görselleri. Site listesi Wikimedia ile sınırlandırılmaz. Önce doğrudan görsel aramasından en fazla altı uygun fotoğraf, sonra web aramasından en fazla altı uygun sayfa denenir; sonuç alınamazsa Commons araması da denenir.
 3. Son seçenek olarak aynı haberin kaynak sayfasındaki kapak fotoğrafı.
 
-Arama, herkese açık ve arama motorunun indekslediği sayfalarla sınırlıdır. Sayfa başlığı ve açıklaması konu eşleşmesi için kullanılır; fotoğraftaki kişinin kimliği veya forması otomatik olarak kesin doğrulanmaz. Bütün kaynaklar başarısızsa haber kaydedilmez.
+Arama, herkese açık ve arama motorunun indekslediği sayfalarla sınırlıdır. Oyuncunun soyadı, görsel başlığı, açıklaması ve kaynak adresi konu eşleşmesi için kullanılır; fotoğraftaki kişinin kimliği veya forması otomatik olarak kesin doğrulanmaz. Bütün kaynaklar başarısızsa haber kaydedilmez.
 
 Oyuncu havuzu media/players.json dosyasında tanımlanır. Kullanılan havuz fotoğrafları yalnızca başarılı paylaşım sonrası geçmişe kaydedilir. Önizleme geçmişi tüketmez.
 
@@ -26,3 +26,5 @@ Paylaşım geçmişi Instagram yüklemesi doğrulanınca kaydedilir. Yükleme ot
 
 Test: python -m unittest discover -s tests -v
 Gerçek API önizlemesi: python bot.py --dry-run
+
+Başarıyla paylaşılan doğrudan arama fotoğraflarının URL geçmişi tutulur ve aynı URL yeniden seçilmez. Önizleme geçmişi tüketmez. Arama servisi alakasız veya boş sonuç döndürebilir; bulunan sonuç ve uygun aday sayıları çalışma kaydında gösterilir.
