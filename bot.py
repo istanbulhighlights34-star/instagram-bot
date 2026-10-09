@@ -83,7 +83,10 @@ def image_interaction(model, payload):
     # SDK retries disabled: this function controls the three attempts.
     client = genai.Client(api_key=key, http_options=types.HttpOptions(
         timeout=90000, retry_options=types.HttpRetryOptions(attempts=0)))
-    prompt = payload['contents'][0]['parts'][0]['text']
+    parts = payload['contents'][0]['parts']
+    prompt = [{'type': 'text', 'text': part['text']} if 'text' in part else
+              {'type': 'image', 'data': part['inlineData']['data'],
+               'mime_type': part['inlineData']['mimeType']} for part in parts]
     try:
         for attempt in range(3):
             try:
@@ -185,15 +188,29 @@ def format_caption(text):
     return body[:2200 - len(suffix)].rstrip() + suffix
 
 
-def generate_ai_image_unbounded(title, destination):
+def generate_ai_image_unbounded(title, destination, reference=None):
     prompt = (
         'Create an original editorial sports illustration inspired by this Turkish news title: '
         + title + '. Black and white palette with subtle red accents, dramatic stadium lighting. '
         'Do not include text or watermarks. When the title names a player, depict that player in Beşiktaş black-and-white training wear or football kit. '
         'Create a sports illustration, not a fabricated documentary photo of an actual event. For news without a named person, use Beşiktaş football imagery.'
     )
+    parts = [{'text': prompt}]
+    if reference:
+        prompt = (
+            'Edit the supplied player photograph into a polished Beşiktaş fan-page sports graphic. '
+            'Preserve the person’s identity, face, pose, and existing kit; do not replace the player '
+            'or fabricate a different event. Keep the player prominent. Use black, white and subtle '
+            'red accents, an elegant eagle silhouette or Beşiktaş-inspired emblem ornament in the '
+            'background, and bold sports typography reading only BEŞİKTAŞ. Do not cover the face '
+            'with text or ornaments. No watermarks, extra people or invented sponsors. '
+            'Use the title only as design context, not as additional text: ' + title
+        )
+        parts = [{'text': prompt}, {'inlineData': {
+            'mimeType': 'image/jpeg',
+            'data': base64.b64encode(Path(reference).read_bytes()).decode('ascii')}}]
     data = gemini_request(os.getenv('GEMINI_IMAGE_MODEL', 'gemini-nano-banana-2.1'), {
-        'contents': [{'parts': [{'text': prompt}]}],
+        'contents': [{'parts': parts}],
         'generationConfig': {'responseModalities': ['IMAGE']},
     }, image=True)
     for part in response_parts(data):
@@ -213,19 +230,19 @@ def generate_ai_image_unbounded(title, destination):
 
 
 
-def _image_worker(title, destination, results):
+def _image_worker(title, destination, results, reference=None):
     try:
-        results.put(generate_ai_image_unbounded(title, destination))
+        results.put(generate_ai_image_unbounded(title, destination, reference))
     except Exception as exc:
         LOG.warning('Görsel işlemi başarısız: %s', type(exc).__name__)
         results.put(False)
 
 
-def generate_ai_image(title, destination):
+def generate_ai_image(title, destination, reference=None):
     # A network timeout cannot bound SDK backoff; isolate the entire operation.
     context = multiprocessing.get_context('fork')
     results = context.Queue()
-    worker = context.Process(target=_image_worker, args=(title, destination, results))
+    worker = context.Process(target=_image_worker, args=(title, destination, results, reference))
     worker.start()
     try:
         worker.join(timeout=180)
@@ -662,24 +679,28 @@ def post_news(dry_run=False):
     with tempfile.TemporaryDirectory(prefix='instagram-news-') as folder:
         image_path = Path(folder) / 'haber.jpg'
         player_photo = {'status': 'no-match'}
-        fallback_photo = None
-        try:
-            image_ready = generate_ai_image(news['title'], image_path)
-        except Exception as exc:
-            LOG.warning('Yapay zekâ görsel hatası: %s', type(exc).__name__)
-            image_ready = False
+        LOG.info('Önce gerçek fotoğraf: oyuncu havuzu ve internet araması.')
+        player_photo = choose_player_photo(news['title'], image_path)
+        image_ready = player_photo['status'] == 'ready'
         if not image_ready:
-            LOG.info('İkinci aşama: oyuncu fotoğraf havuzu ve internet araması.')
-            player_photo = choose_player_photo(news['title'], image_path)
-            image_ready = player_photo['status'] == 'ready'
-            if not image_ready:
-                image_ready = download_web_image(news, image_path)
+            image_ready = download_web_image(news, image_path)
         if not image_ready:
-            LOG.info('Son aşama: haber sitesinin kapak fotoğrafı.')
+            LOG.info('Aramada fotoğraf bulunamadı; haberin kapak fotoğrafı deneniyor.')
             image_ready = download_article_image(news, image_path)
         if not image_ready:
-            report_outcome('Yapay zekâ, internet araması ve haber kapağından uygun görsel alınamadı. Haber kaydedilmedi.')
+            report_outcome('İnternet araması, oyuncu havuzu ve haber kapağından uygun fotoğraf alınamadı. Haber kaydedilmedi.')
             return
+        LOG.info('Fotoğraf hazır; yapay zekâ ile Beşiktaş tasarımı işleniyor (en fazla 180 saniye).')
+        designed_path = Path(folder) / 'tasarim.jpg'
+        try:
+            designed = generate_ai_image(news['title'], designed_path, reference=image_path)
+            if designed and designed_path.is_file():
+                image_path = designed_path
+                LOG.info('Beşiktaş tasarımı hazır.')
+            else:
+                LOG.warning('Tasarım oluşmadı; bulunan fotoğrafla devam ediliyor.')
+        except Exception as exc:
+            LOG.warning('Tasarım hatası (%s); bulunan fotoğrafla devam ediliyor.', type(exc).__name__)
         if dry_run:
             import shutil
             preview = Path('preview')
@@ -693,8 +714,6 @@ def post_news(dry_run=False):
         save_posted_news(news['link'])
         if news.get('_web_image_url'):
             save_fallback_photo(news['_web_image_url'])
-        if fallback_photo:
-            save_fallback_photo(fallback_photo['title'])
         if player_photo['status'] == 'ready':
             save_player_photo(player_photo)
         report_outcome(f'Instagram paylaşımı doğrulandı; medya kimliği: {media_id}. Haber geçmişe kaydedildi.')
