@@ -4,9 +4,12 @@ En yeni paylaşılmamış RSS haberini seçer ve metni yeniden yazar. Metin üre
 
 ## Görsel seçimi
 
-1. Habere uygun yapay zekâ görseli: toplam en fazla 180 saniye. Hata veya süre aşımında sonraki kaynağa geçilir.
-2. İsimle eşleşen oyuncu fotoğraf havuzu; ardından Bing web aramasındaki farklı sitelerden oyuncu ve Beşiktaş konusuna uygun sayfaların görselleri. Site listesi Wikimedia ile sınırlandırılmaz. Önce doğrudan görsel aramasından en fazla altı uygun fotoğraf, sonra web aramasından en fazla altı uygun sayfa denenir; sonuç alınamazsa Commons araması da denenir.
-3. Son seçenek olarak aynı haberin kaynak sayfasındaki kapak fotoğrafı.
+1. Önce oyuncu fotoğraf havuzu ve internet görsel/web aramasından gerçek fotoğraf bulunur.
+2. Fotoğraf bulunamazsa haberin kaynak sayfasındaki kapak fotoğrafı denenir.
+3. Bulunan fotoğraf AI modeline görsel girdisi olarak gönderilir. Oyuncunun yüzü, pozu ve forması korunarak kartal motifi, Beşiktaş renkleri ve BEŞİKTAŞ yazılı spor tipografisiyle düzenleme istenir. Tasarım en fazla 180 saniye sürer.
+4. Düzenleme hata verir veya süreyi aşarsa bulunan orijinal fotoğrafla devam edilir. Hiç fotoğraf bulunamazsa haber kaydedilmez.
+
+Yapay zekânın kimliği ve forma ayrıntılarını kusursuz koruduğu otomatik olarak doğrulanmaz; önizlemeyi incelemek gerekir.
 
 Arama, herkese açık ve arama motorunun indekslediği sayfalarla sınırlıdır. Oyuncunun soyadı, görsel başlığı, açıklaması ve kaynak adresi konu eşleşmesi için kullanılır; fotoğraftaki kişinin kimliği veya forması otomatik olarak kesin doğrulanmaz. Bütün kaynaklar başarısızsa haber kaydedilmez.
 
