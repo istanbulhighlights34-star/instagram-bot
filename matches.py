@@ -269,6 +269,43 @@ def card(match, kind, players, path):
     bot.apply_claw_branding(path,path,framed=False)
 
 
+MOTTOS = {
+    'away': (
+        'Bizim İçin Her Yer Beşiktaş!',
+        'Mesafeler Değişir, Beşiktaş Sevgisi Değişmez!',
+        'Armanın Peşinde, Yolların Ötesinde!',
+        'Deplasmanda da Tek Yürek, Tek Beşiktaş!',
+        'Yolumuz Uzun, Sevdamız Siyah Beyaz!',
+        'Kartalın Kanatları Her Yere Uzanır!',
+        'Nerede Oynarsan Oyna, Kalbimiz Seninle!',
+        'Gidilecek Çok Deplasman Var!',
+    ),
+    'home': (
+        'Burası Beşiktaş, Burası Bizim Evimiz!',
+        'Semt Bizim, Aşk Bizim, Beşiktaş Bizim!',
+        'Siyah Beyaz, Tek Yürek!',
+        'Bugün Günlerden Beşiktaş!',
+        'Armanın Peşinde, Omuz Omuza!',
+        'Kalbimizde Beşiktaş, Tribünde Tek Ses!',
+        'Evimizde Hep Birlikte, Son Düdüğe Kadar!',
+        'Sen Ben Yok, Beşiktaş Var!',
+    ),
+}
+
+
+def choose_motto(away, state):
+    context = 'away' if away else 'home'
+    records = [r for r in state.values() if isinstance(r, dict) and r.get('motto')]
+    counts = {phrase: sum(r['motto'] == phrase for r in records) for phrase in MOTTOS[context]}
+    last = max(records, key=lambda r:r.get('published_at',''), default={}).get('motto')
+    candidates = [phrase for phrase in MOTTOS[context] if phrase != last]
+    # Use every phrase before starting another cycle; oldest usage breaks ties.
+    def order(phrase):
+        latest = max((r.get('published_at','') for r in records if r['motto']==phrase), default='')
+        return counts[phrase], latest
+    return min(candidates, key=order)
+
+
 def run(matches, now, dry_run=False):
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
     for match in matches:
@@ -290,16 +327,17 @@ def run(matches, now, dry_run=False):
         caption += '\n'+(' : '.join(t['score'] for t in match['teams']) if kind=='result' else match['start'].astimezone(ISTANBUL).strftime('%d.%m.%Y %H:%M'))
         if players:
             caption += '\n\nİlk 11: '+', '.join(players)
+        motto = None
         if kind == 'pre':
             away = match['teams'][1]['id'] in {'BES', '1895'}
-            motto = 'Gidilecek Çok Deplasman Var!' if away else 'Sen Ben Yok, Beşiktaş Var!'
+            motto = choose_motto(away, state)
             caption += '\n\n' + motto + ' 💪🦅'
         caption += '\n\n#Beşiktaş #BJK #KaraKartal '+('#Basketbol #MaçGünü' if match['sport']=='BASKETBOL' else '#Futbol #MaçGünü')
         if dry_run:
             path.with_suffix('.txt').write_text(caption)
         else:
             media_id = bot.publish(path,caption)
-            state[key] = {'media_id': str(media_id), 'published_at': now.isoformat()}
+            state[key] = {'media_id': str(media_id), 'published_at': now.isoformat(), 'motto': motto}
             temp = STATE.with_suffix('.tmp')
             temp.write_text(json.dumps(state,ensure_ascii=False,indent=2))
             temp.replace(STATE)
