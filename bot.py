@@ -330,6 +330,67 @@ def report_outcome(message):
             stream.write('### Haber botu sonucu\n\n' + message + '\n\n')
 
 
+
+PLAYER_MEDIA_ROOT = Path('media/players')
+PLAYER_MEDIA_CATALOG = Path('media/players.json')
+PLAYER_MEDIA_HISTORY = Path('kullanilan_oyuncu_gorselleri.json')
+
+
+def subject_key(value):
+    import unicodedata
+    value = value.casefold().replace('ı', 'i')
+    value = ''.join(ch for ch in unicodedata.normalize('NFD', value)
+                    if not unicodedata.combining(ch))
+    return re.sub(r'[^a-z0-9]+', ' ', value).strip()
+
+
+def choose_player_photo(title, destination):
+    """Return no-match, missing, or ready for an explicitly catalogued player."""
+    from PIL import ImageOps
+    if not PLAYER_MEDIA_CATALOG.exists():
+        return {'status': 'no-match'}
+    catalog = json.loads(PLAYER_MEDIA_CATALOG.read_text(encoding='utf-8'))
+    headline = ' ' + subject_key(title) + ' '
+    for player in catalog['players']:
+        aliases = player.get('aliases', []) + [player['name']]
+        if not any(' ' + subject_key(alias) + ' ' in headline for alias in aliases):
+            continue
+        folder = (PLAYER_MEDIA_ROOT / player['folder']).resolve()
+        if not folder.is_relative_to(PLAYER_MEDIA_ROOT.resolve()):
+            raise ValueError('Geçersiz oyuncu fotoğraf klasörü.')
+        photos = sorted(p for p in folder.glob('*') if p.suffix.lower() in ('.jpg', '.jpeg', '.png', '.webp') and p.is_file() and p.resolve().is_relative_to(PLAYER_MEDIA_ROOT.resolve()))
+        if not photos:
+            return {'status': 'missing', 'player': player['name']}
+        history = json.loads(PLAYER_MEDIA_HISTORY.read_text(encoding='utf-8')) if PLAYER_MEDIA_HISTORY.exists() else {}
+        used = history.get(player['name'], [])
+        candidates = [p for p in photos if str(p.relative_to(PLAYER_MEDIA_ROOT.resolve())) not in used]
+        if not candidates:
+            candidates = [p for p in photos if str(p.relative_to(PLAYER_MEDIA_ROOT.resolve())) != used[-1]] or photos
+        for photo in candidates:
+            try:
+                with Image.open(photo) as picture:
+                    picture = ImageOps.exif_transpose(picture).convert('RGB')
+                    ImageOps.pad(picture, (1080, 1080), color='black').save(destination, 'JPEG', quality=95)
+                key = str(photo.relative_to(PLAYER_MEDIA_ROOT.resolve()))
+                return {'status': 'ready', 'player': player['name'], 'key': key,
+                        'all': [str(p.relative_to(PLAYER_MEDIA_ROOT.resolve())) for p in photos]}
+            except OSError:
+                LOG.warning('Oyuncu fotoğrafı okunamadı: %s', photo.name)
+        return {'status': 'missing', 'player': player['name']}
+    return {'status': 'no-match'}
+
+
+def save_player_photo(selected):
+    history = json.loads(PLAYER_MEDIA_HISTORY.read_text(encoding='utf-8')) if PLAYER_MEDIA_HISTORY.exists() else {}
+    used = history.get(selected['player'], [])
+    if set(selected['all']).issubset(used):
+        used = used[-1:]
+    history[selected['player']] = used + [selected['key']]
+    temporary = PLAYER_MEDIA_HISTORY.with_suffix('.tmp')
+    temporary.write_text(json.dumps(history, ensure_ascii=False), encoding='utf-8')
+    temporary.replace(PLAYER_MEDIA_HISTORY)
+
+
 def post_news(dry_run=False):
     if not os.getenv('GEMINI_API_KEY'):
         raise RuntimeError('GEMINI_API_KEY eksik.')
@@ -346,11 +407,19 @@ def post_news(dry_run=False):
     LOG.info('Metin hazır; görsel üretimine geçiliyor.')
     with tempfile.TemporaryDirectory(prefix='instagram-news-') as folder:
         image_path = Path(folder) / 'haber.jpg'
-        try:
-            ai_image = generate_ai_image(news['title'], image_path)
-        except Exception as exc:
-            LOG.warning('Yapay zekâ görsel hatası: %s; B planına geçiliyor.', type(exc).__name__)
-            ai_image = False
+        player_photo = choose_player_photo(news['title'], image_path)
+        if player_photo['status'] == 'missing':
+            report_outcome(f"{player_photo['player']} için izinli fotoğraf havuzu boş veya okunamıyor. İlgisiz görsel kullanılmadı; haber kaydedilmedi.")
+            return
+        if player_photo['status'] == 'ready':
+            LOG.info('Habere eşleşen oyuncu fotoğrafı: %s', player_photo['player'])
+            ai_image = True
+        else:
+            try:
+                ai_image = generate_ai_image(news['title'], image_path)
+            except Exception as exc:
+                LOG.warning('Yapay zekâ görsel hatası: %s; B planına geçiliyor.', type(exc).__name__)
+                ai_image = False
         fallback_photo = None
         if not ai_image:
             LOG.info('B planına geçiliyor: Beşiktaş stadyum fotoğrafı.')
@@ -371,6 +440,8 @@ def post_news(dry_run=False):
         save_posted_news(news['link'])
         if fallback_photo:
             save_fallback_photo(fallback_photo['title'])
+        if player_photo['status'] == 'ready':
+            save_player_photo(player_photo)
         report_outcome(f'Instagram paylaşımı doğrulandı; medya kimliği: {media_id}. Haber geçmişe kaydedildi.')
 
 
