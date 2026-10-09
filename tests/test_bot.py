@@ -85,5 +85,19 @@ class BotTests(unittest.TestCase):
             self.assertNotIn(bot.FALLBACK_PHOTOS[-1], bot.fallback_candidates())
             self.assertEqual(len(bot.fallback_candidates()), len(bot.FALLBACK_PHOTOS) - 1)
 
+
+    def test_hung_image_worker_is_terminated(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'partial.jpg'
+            path.write_bytes(b'partial')
+            context = Mock()
+            worker = context.Process.return_value
+            worker.is_alive.side_effect = [True, False]
+            with patch('bot.multiprocessing.get_context', return_value=context):
+                self.assertFalse(bot.generate_ai_image('Haber', path))
+            worker.terminate.assert_called_once()
+            self.assertEqual(worker.join.call_args_list[0].kwargs['timeout'], 45)
+            self.assertFalse(path.exists())
+
 if __name__ == '__main__':
     unittest.main()
