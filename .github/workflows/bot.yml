@@ -2,37 +2,79 @@ name: Instagram AI Bot
 
 on:
   schedule:
-    # Günde 4 kez
+    # Türkiye saati: 11:00, 15:00, 19:00, 22:00 (UTC+3)
     - cron: '0 8,12,16,19 * * *'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Instagram paylaşmadan önizleme oluştur'
+        type: boolean
+        default: true
+  pull_request:
+  push:
+    paths: ['bot.py', 'requirements.txt', 'tests/**', '.github/workflows/bot.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instagram-bot-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  post:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - name: Depoyu Klonla
-        uses: actions/checkout@v3
-
-      - name: Python'u Kur
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
 
-      - name: Kütüphaneleri Yükle
-        run: pip install instagrapi feedparser requests cloudscraper
-
-      - name: Botu Çalıştır
+  post:
+    needs: test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Botu çalıştır
         env:
           IG_USERNAME: ${{ secrets.IG_USERNAME }}
           IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
           IG_SESSION: ${{ secrets.IG_SESSION }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python bot.py
-
-      - name: Paylaşılanları Kaydet
+          GEMINI_TEXT_MODEL: ${{ vars.GEMINI_TEXT_MODEL || 'gemini-3.8-flash' }}
+          GEMINI_IMAGE_MODEL: ${{ vars.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
-          git config --global user.name "AI Bot"
-          git config --global user.email "bot@example.com"
+          if [ "$DRY_RUN" = "true" ]; then
+            python bot.py --dry-run
+          else
+            python bot.py
+          fi
+      - name: Önizlemeyi kaydet
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        uses: actions/upload-artifact@v4
+        with:
+          name: haber-onizleme
+          path: preview/
+          if-no-files-found: ignore
+      - name: Paylaşım geçmişini kaydet
+        if: always() && (github.event_name == 'schedule' || !inputs.dry_run)
+        run: |
+          if [ ! -f paylasilan_haberler.txt ]; then exit 0; fi
+          git config user.name 'Instagram Bot'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add paylasilan_haberler.txt
-          git commit -m "Yeni haber paylaşıldı" || echo "Değişiklik yok"
-          git push
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Save published news history'
+          git pull --rebase origin main
+          git push origin HEAD:main
