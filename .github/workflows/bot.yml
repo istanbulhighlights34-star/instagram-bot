@@ -83,3 +83,5 @@ jobs:
           git push origin HEAD:main
 
 # Retry the approved news publication after pre-upload API failures.
+
+# Retry approved publication with renewed Instagram session.
