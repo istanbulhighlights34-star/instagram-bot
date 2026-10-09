@@ -81,7 +81,7 @@ def gemini_request(model, payload, image=False):
     for attempt in range(3):
         try:
             response = requests.post(
-                f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
+                f'https://generativelanguage.googleapis.com/v1/models/{model}:generateContent',
                 headers={'x-goog-api-key': key}, json=payload, timeout=(10, 90),
             )
             if response.status_code == 200:
@@ -91,7 +91,9 @@ def gemini_request(model, payload, image=False):
                 if valid:
                     return data
                 LOG.warning("Gemini boş yanıt; deneme %s/3", attempt + 1)
-            LOG.warning('Gemini HTTP %s; deneme %s/3', response.status_code, attempt + 1)
+            if response.status_code != 200:
+                reason = {400: 'İstek/model ayarları geçersiz', 401: 'API anahtarı geçersiz', 403: 'API erişim izni yok', 404: 'Model bulunamadı veya hesaba açık değil', 429: 'Kota/hız sınırı', 503: 'Google hizmeti geçici olarak kullanılamıyor'}.get(response.status_code, 'API hatası')
+                LOG.warning('Gemini %s HTTP %s: %s; deneme %s/3', model, response.status_code, reason, attempt + 1)
             if response.status_code not in (200, 408, 429, 500, 502, 503, 504):
                 return None
         except (requests.RequestException, ValueError) as exc:
@@ -132,9 +134,9 @@ def generate_ai_image(title, destination):
         'Do not include text, logos, watermarks, or recognizable real people. '
         'Use symbolic football imagery; do not portray an actual event as a documentary photo.'
     )
-    data = gemini_request(os.getenv('GEMINI_IMAGE_MODEL', 'gemini-3.1-flash-image'), {
+    data = gemini_request(os.getenv('GEMINI_IMAGE_MODEL', 'gemini-nano-banana-2.1'), {
         'contents': [{'parts': [{'text': prompt}]}],
-        'generationConfig': {'responseModalities': ['TEXT', 'IMAGE'], 'imageConfig': {'aspectRatio': '1:1'}},
+        'generationConfig': {'responseModalities': ['TEXT', 'IMAGE'], 'responseFormat': {'image': {'aspectRatio': '1:1', 'imageSize': '1K'}}},
     }, image=True)
     for part in response_parts(data):
         inline = part.get('inlineData', {})
@@ -171,20 +173,30 @@ def publish(image_path, caption):
     return result.pk
 
 
+def report_outcome(message):
+    LOG.info(message)
+    summary = os.getenv('GITHUB_STEP_SUMMARY')
+    if summary:
+        with open(summary, 'a', encoding='utf-8') as stream:
+            stream.write('### Haber botu sonucu\n\n' + message + '\n\n')
+
+
 def post_news(dry_run=False):
     if not os.getenv('GEMINI_API_KEY'):
         raise RuntimeError('GEMINI_API_KEY eksik.')
     news = get_latest_unposted_news()
     if not news:
-        LOG.info('Paylaşılacak yeni haber bulunamadı.')
+        report_outcome('Paylaşılacak yeni haber bulunamadı. Instagram paylaşımı yapılmadı.')
         return
     LOG.info('Haber: %s', news['title'])
     caption = generate_caption(news['title'], news['summary'], news['link'])
     if not caption:
+        report_outcome('Metin üretilemedi. Önizleme ve Instagram paylaşımı yapılmadı; haber kaydedilmedi. API hata ayrıntıları çalışma kayıtlarında bulunuyor.')
         return
     with tempfile.TemporaryDirectory(prefix='instagram-news-') as folder:
         image_path = Path(folder) / 'haber.jpg'
         if not generate_ai_image(news['title'], image_path):
+            report_outcome('Görsel üretilemedi. Önizleme ve Instagram paylaşımı yapılmadı; haber kaydedilmedi.')
             return
         caption = caption[:2150] + '\nGörsel: yapay zekâ ile üretilmiştir.'
         if dry_run:
@@ -193,12 +205,12 @@ def post_news(dry_run=False):
             preview.mkdir(exist_ok=True)
             shutil.copyfile(image_path, preview / 'haber.jpg')
             (preview / 'caption.txt').write_text(caption, encoding='utf-8')
-            LOG.info('Önizleme hazır. Instagram paylaşımı ve haber kaydı yapılmadı.')
+            report_outcome('Önizleme hazır: haber-onizleme çıktısını indirin. Instagram paylaşımı ve haber kaydı yapılmadı.')
             return
         # Yükleme otomatik tekrarlanmaz: yanıt kaybı çift paylaşıma yol açabilir.
         media_id = publish(image_path, caption)
         save_posted_news(news['link'])
-        LOG.info('Paylaşıldı; medya kimliği: %s', media_id)
+        report_outcome(f'Instagram paylaşımı doğrulandı; medya kimliği: {media_id}. Haber geçmişe kaydedildi.')
 
 
 def main():
