@@ -23,6 +23,7 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Yalnızca panelden onaylanan fotoğrafı paylaş
         env:
+          PREPARE_PREVIEWS: ${{ github.event_name == 'push' }}
           CHECK_ONLY: ${{ github.event_name == 'push' }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
