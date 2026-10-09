@@ -81,3 +81,5 @@ jobs:
           git commit -m 'Save published news history'
           git pull --rebase origin main
           git push origin HEAD:main
+
+# Retry the approved news publication after pre-upload API failures.
