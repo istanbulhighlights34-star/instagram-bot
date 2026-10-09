@@ -71,7 +71,7 @@ class BotTests(unittest.TestCase):
                 bot.post_news()
                 fallback.assert_called_once()
                 publish.assert_called_once()
-                self.assertIn('Temsili arşiv fotoğrafı', publish.call_args.args[1])
+                self.assertNotIn('Wikimedia', publish.call_args.args[1])
                 self.assertNotIn('yapay zekâ ile üretilmiştir', publish.call_args.args[1])
                 save.assert_called_once_with(news['link'])
 
@@ -98,6 +98,14 @@ class BotTests(unittest.TestCase):
             worker.terminate.assert_called_once()
             self.assertEqual(worker.join.call_args_list[0].kwargs['timeout'], 45)
             self.assertFalse(path.exists())
+
+
+    def test_caption_club_tags_before_person_and_no_links(self):
+        caption = bot.format_caption('Miretti hazır! https://news.test/a #Miretti #BJK #Miretti')
+        self.assertTrue(caption.endswith('#Beşiktaş #BJK #KaraKartal #Miretti'))
+        self.assertNotIn('https://', caption)
+        self.assertEqual(caption.count('#Miretti'), 1)
+        self.assertLessEqual(len(bot.format_caption('x' * 3000 + ' #Miretti')), 2200)
 
 if __name__ == '__main__':
     unittest.main()
