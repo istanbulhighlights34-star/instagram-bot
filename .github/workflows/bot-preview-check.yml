@@ -1,0 +1,47 @@
+name: Bot Otomatik Önizleme Kontrolü
+on:
+  push:
+    paths: ['.github/workflows/bot-preview-check.yml']
+permissions:
+  contents: read
+concurrency:
+  group: instagram-bot-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  preview:
+    if: contains(github.event.head_commit.message, '[bot-preview-check]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.14'
+      - run: pip install -r requirements.txt
+      - name: Kullanılabilir metin modellerini doğrula
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os,requests
+          response=requests.get('https://generativelanguage.googleapis.com/v1beta/models',headers={'x-goog-api-key':os.environ['GEMINI_API_KEY']},timeout=20)
+          print('Model listesi yanıtı:',response.status_code)
+          response.raise_for_status()
+          names=[m['name'].replace('models/','') for m in response.json().get('models',[]) if 'generateContent' in m.get('supportedGenerationMethods',[]) and 'flash' in m['name'] and 'image' not in m['name']]
+          print('Metin modelleri:',', '.join(names))
+          print('Ayarlı model listede:', 'gemini-3.8-flash' in names)
+          PY
+      - name: Bot kendi haberini ve metnini hazırlasın
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_TEXT_MODEL: gemini-3.8-flash
+        run: python bot.py --dry-run
+      - name: Önizleme oluşturulduğunu doğrula
+        run: test -f preview/haber.jpg
+      - name: Önizlemeyi kaydet
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: otomatik-bot-onizleme
+          path: preview/
+          if-no-files-found: ignore
