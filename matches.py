@@ -264,7 +264,7 @@ def card(match, kind, players, path):
     if players:
         centered('İLK 11',635,30)
         for i, player in enumerate(players):
-            draw.text((80 if i<6 else 580,685+(i if i<6 else i-6)*48),player,font=font(25),fill='white')
+            centered(player, 680 + i * 28, 25)
     picture.save(path,'JPEG',quality=95)
     bot.apply_claw_branding(path,path,framed=False)
 
