@@ -16,16 +16,16 @@ import tempfile
 import time
 
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 LOG = logging.getLogger(__name__)
 POSTED_FILE = Path('paylasilan_haberler.txt')
 TAGS = '#Beşiktaş #BJK #KaraKartal'
 RSS_FEEDS = [
     'https://ortacizgi.com/feed',
-    'https://www.fanatik.com.tr/rss/besiktas',
-    'https://www.kartalhaber.com/rss.xml',
     'https://www.duhuliye.com/rss',
+    'https://www.aspor.com.tr/rss/besiktas.xml',
+    'https://www.fotomac.com.tr/rss/besiktas.xml',
 ]
 
 
@@ -35,6 +35,15 @@ def clean_text(value):
 
 def load_posted_news():
     return set(POSTED_FILE.read_text(encoding='utf-8').splitlines()) if POSTED_FILE.exists() else set()
+
+
+def get_last_posted_domain():
+    if not POSTED_FILE.exists():
+        return None
+    lines = [line.strip() for line in POSTED_FILE.read_text(encoding='utf-8').splitlines() if line.strip()]
+    if not lines:
+        return None
+    return urlparse(lines[-1]).netloc.replace('www.', '').lower()
 
 
 def save_posted_news(link):
@@ -48,6 +57,31 @@ def is_besiktas_news(title, summary=''):
     """Only explicit club headlines; feed branding and caption tags are not evidence."""
     text = clean_text(title).casefold().replace('ş', 's').replace('ı', 'i')
     return bool(re.search(r'(?<!\w)(?:besiktas|bjk|kara\s*kartal|siyah[\s-]+beyazl[ıi]lar)(?!\w)', text))
+
+
+def fetch_fanatik_candidates(scraper, posted):
+    candidates = []
+    try:
+        response = scraper.get('https://www.fanatik.com.tr/besiktas', timeout=(10, 30))
+        if response.status_code == 200:
+            cards = re.findall(r'<a[^>]+href=[\'"](/besiktas/[^\'"]*-([0-9]+))[\'"][^>]*>(.*?)</a>', response.text, re.S)
+            seen = set()
+            now = list(time.gmtime())
+            for idx, (href, aid, inner) in enumerate(cards):
+                full_url = urljoin('https://www.fanatik.com.tr', href)
+                if full_url in seen or full_url in posted:
+                    continue
+                seen.add(full_url)
+                alt_match = re.search(r'alt="([^"]+)"', inner) or re.search(r"alt='([^']+)'", inner)
+                clean_txt = ' '.join(html.unescape(re.sub(r'<[^>]+>', ' ', inner)).split())
+                candidate_title = alt_match.group(1).strip() if alt_match and len(alt_match.group(1).strip()) > 10 else clean_txt
+                title = clean_text(candidate_title)
+                if len(title) > 10:
+                    stamp = (now[0], now[1], now[2], now[3], now[4], max(0, 59 - idx), now[6], now[7], now[8])
+                    candidates.append((stamp, {'title': title, 'summary': title, 'link': full_url}))
+    except Exception as exc:
+        LOG.warning('Fanatik haberleri okunamadı: %s (%s)', 'https://www.fanatik.com.tr/besiktas', type(exc).__name__)
+    return candidates
 
 
 def get_latest_unposted_news():
@@ -79,9 +113,23 @@ def get_latest_unposted_news():
                 candidates.append((stamp, {'title': title, 'summary': clean_text(entry.get('summary', title)), 'link': link}))
         except Exception as exc:
             LOG.warning('RSS okunamadı: %s (%s)', url, type(exc).__name__)
+    fanatik_news = fetch_fanatik_candidates(scraper, posted)
+    if fanatik_news:
+        successful_feeds += 1
+        candidates.extend(fanatik_news)
     if not successful_feeds:
         raise RuntimeError('Hiçbir RSS kaynağı okunamadı.')
-    return max(candidates, key=lambda item: item[0])[1] if candidates else None
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    last_domain = get_last_posted_domain()
+    if last_domain:
+        # Check top fresh candidates for source diversity
+        top_candidates = candidates[:10]
+        diverse_candidate = next((item[1] for item in top_candidates if urlparse(item[1]['link']).netloc.replace('www.', '').lower() != last_domain), None)
+        if diverse_candidate:
+            return diverse_candidate
+    return candidates[0][1]
 
 
 
@@ -181,6 +229,64 @@ def generate_caption(title, summary, link):
         LOG.warning('Metin oluşmadı; haber kaydedilmeden sonraki çalışmaya bırakıldı.')
         return None
     return format_caption(text, title + " " + summary)
+
+
+def generate_news_package(title, summary, link):
+    caption = generate_caption(title, summary, link)
+    if not caption:
+        return None
+    context = title + ' ' + summary
+    subj = subject_key(context)
+    if any(w in subj for w in ('transfer', 'teklif', 'bonservis', 'sozlesme', 'talip', 'imza', 'anlasma')):
+        badge = 'TRANSFER İDDİASI'
+        fmt = 'reel'
+    elif any(w in subj for w in ('sakat', 'ameliyat', 'tedavi', 'mr', 'sok')):
+        badge = 'SAKATLIK RAPORU'
+        fmt = 'reel'
+    elif any(w in subj for w in ('derbi', 'galatasaray', 'fenerbahce', 'trabzonspor', 'ezeli')):
+        badge = 'DERBİ HAVASI'
+        fmt = 'reel'
+    elif any(w in subj for w in ('mac', 'skor', 'galibiyet', 'maglubiyet', 'var')):
+        badge = 'MAÇ GÜNÜ'
+        fmt = 'reel'
+    elif any(w in subj for w in ('antrenman', 'idman', 'taktik', 'hazirlik')):
+        badge = 'ANTRENMAN RAPORU'
+        fmt = 'photo'
+    elif any(w in subj for w in ('aciklama', 'baskan', 'yonetim', 'federasyon', 'tff')):
+        badge = 'RESMİ AÇIKLAMA'
+        fmt = 'photo'
+    else:
+        badge = 'SON DAKİKA'
+        fmt = 'photo'
+
+    first_line = caption.split('\n')[0].strip()
+    first_line = re.sub(r'#\S+', '', first_line).strip()
+    if 10 <= len(first_line) <= 50:
+        headline = first_line
+    else:
+        headline = title[:45]
+
+    player = None
+    if PLAYER_MEDIA_CATALOG.exists():
+        try:
+            catalog = json.loads(PLAYER_MEDIA_CATALOG.read_text(encoding='utf-8'))
+            headline_key = ' ' + subject_key(title + ' ' + summary) + ' '
+            for p in catalog.get('players', []):
+                if any(' ' + subject_key(alias) + ' ' in headline_key for alias in p.get('aliases', []) + [p['name']]):
+                    player = p['name']
+                    break
+        except Exception:
+            pass
+
+    sub_headline = (player + ' gelişmesi' if player else 'Kartalpenche özel haber')
+    return {
+        'badge': badge,
+        'headline': headline,
+        'sub_headline': sub_headline,
+        'player': player,
+        'format': fmt,
+        'caption': caption
+    }
 
 
 def format_caption(text, context=""):
@@ -358,7 +464,10 @@ def publish(image_path, caption):
             client = Client()
     # set_settings tek başına giriş yapmaz; mevcut oturum login ile doğrulanır.
     client.login(username, password)
-    result = client.photo_upload(str(image_path), caption)
+    if str(image_path).endswith('.mp4'):
+        result = client.clip_upload(Path(image_path), caption)
+    else:
+        result = client.photo_upload(str(image_path), caption)
     if not result or not getattr(result, 'pk', None):
         raise RuntimeError('Instagram paylaşımı doğrulanamadı.')
     return result.pk
@@ -764,6 +873,124 @@ def render_free_design(source, destination, headline):
     return True
 
 
+def get_title_font(size):
+    for path in ['/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf',
+                 '/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf',
+                 '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
+                 '/System/Library/Fonts/Helvetica.ttc']:
+        if Path(path).is_file():
+            try: return ImageFont.truetype(path, size)
+            except Exception: pass
+    bundled = Path(__file__).resolve().parent / 'media' / 'match-font.b64'
+    if bundled.is_file():
+        try: return ImageFont.truetype(io.BytesIO(base64.b64decode(bundled.read_text())), size)
+        except Exception: pass
+    return ImageFont.load_default()
+
+
+def render_news_lower_third(source, destination, badge='SON DAKİKA', headline='', sub_headline=''):
+    from PIL import ImageDraw, ImageOps
+    with Image.open(source) as original:
+        photo = ImageOps.exif_transpose(original).convert('RGB')
+        photo = ImageOps.fit(photo, (1080, 1080))
+    canvas = photo.convert('RGBA')
+    draw = ImageDraw.Draw(canvas)
+    w, h = canvas.size
+    bar_h = 190
+    draw.rectangle([(0, h - bar_h), (w, h)], fill=(12, 14, 18, 235))
+    draw.rectangle([(0, h - bar_h), (w, h - bar_h + 5)], fill=(227, 10, 23, 255))
+
+    badge_clean = (badge or 'SON DAKİKA').strip().upper()
+    b_font = get_title_font(20)
+    b_width = len(badge_clean) * 14 + 32
+    draw.rounded_rectangle([(40, h - bar_h + 18), (40 + b_width, h - bar_h + 52)], radius=5, fill=(227, 10, 23, 255))
+    draw.text((54, h - bar_h + 24), badge_clean, fill=(255, 255, 255), font=b_font)
+
+    hl_text = (headline or 'BEŞİKTAŞ HABERLERİ').strip().upper()
+    if len(hl_text) > 45:
+        hl_text = hl_text[:42] + '...'
+    hl_font = get_title_font(34)
+    draw.text((40, h - bar_h + 68), hl_text, fill=(255, 255, 255), font=hl_font)
+
+    sub_text = (sub_headline or 'Kartalpenche özel haber').strip()
+    if len(sub_text) > 60:
+        sub_text = sub_text[:57] + '...'
+    sub_font = get_title_font(20)
+    draw.text((40, h - bar_h + 124), f'{sub_text} • @kartalpenche1903', fill=(185, 185, 185), font=sub_font)
+
+    canvas.convert('RGB').save(destination, 'JPEG', quality=95)
+    return True
+
+
+def create_news_reel(source_img, destination_mp4, badge='SON DAKİKA', headline='', sub_headline=''):
+    import subprocess, math, tempfile
+    import imageio_ffmpeg
+    from PIL import ImageDraw, ImageOps
+
+    with Image.open(source_img) as original:
+        base = ImageOps.exif_transpose(original).convert('RGBA')
+        base = ImageOps.fit(base, (1080, 1080))
+    w, h = base.size
+
+    fps = 15
+    duration = 3.5
+    total_frames = int(fps * duration)
+    bar_h = 190
+    badge_clean = (badge or 'SON DAKİKA').strip().upper()
+    hl_text = (headline or 'BEŞİKTAŞ HABERLERİ').strip().upper()
+    if len(hl_text) > 45:
+        hl_text = hl_text[:42] + '...'
+    sub_text = (sub_headline or 'Kartalpenche özel haber').strip()
+    if len(sub_text) > 60:
+        sub_text = sub_text[:57] + '...'
+
+    b_font = get_title_font(20)
+    hl_font = get_title_font(34)
+    sub_font = get_title_font(20)
+    b_width = len(badge_clean) * 14 + 32
+
+    try:
+        ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception as exc:
+        LOG.warning('FFmpeg bulunamadı: %s', exc)
+        return False
+
+    with tempfile.TemporaryDirectory(prefix='reel-frames-') as tmpdir:
+        frame_pattern = os.path.join(tmpdir, 'frame_%04d.jpg')
+        for i in range(total_frames):
+            t = i / total_frames
+            scale = 1.0 + 0.08 * math.sin(t * math.pi)
+            nw, nh = int(w * scale), int(h * scale)
+            scaled = base.resize((nw, nh), Image.Resampling.LANCZOS)
+            left = (nw - w) // 2
+            top = (nh - h) // 2
+            frame = scaled.crop((left, top, left + w, top + h))
+
+            draw = ImageDraw.Draw(frame, 'RGBA')
+            draw.rectangle([(0, h - bar_h), (w, h)], fill=(12, 14, 18, 235))
+            draw.rectangle([(0, h - bar_h), (w, h - bar_h + 5)], fill=(227, 10, 23, 255))
+
+            pulse = int(210 + 45 * math.sin(t * 2 * math.pi))
+            draw.rounded_rectangle([(40, h - bar_h + 18), (40 + b_width, h - bar_h + 52)], radius=5, fill=(227, 10, 23, pulse))
+            draw.text((54, h - bar_h + 24), badge_clean, fill=(255, 255, 255), font=b_font)
+            draw.text((40, h - bar_h + 68), hl_text, fill=(255, 255, 255), font=hl_font)
+            draw.text((40, h - bar_h + 124), f'{sub_text} • @kartalpenche1903', fill=(185, 185, 185), font=sub_font)
+
+            frame.convert('RGB').save(os.path.join(tmpdir, f'frame_{i:04d}.jpg'), 'JPEG', quality=90)
+
+        cmd = [
+            ffmpeg_bin, '-y', '-r', str(fps), '-i', frame_pattern,
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+            '-movflags', '+faststart', '-preset', 'ultrafast',
+            str(destination_mp4)
+        ]
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0 or not Path(destination_mp4).is_file():
+            LOG.warning('Reel videosu oluşturulamadı: %s', result.stderr.decode(errors='ignore'))
+            return False
+    return True
+
+
 def post_news(dry_run=False):
     if not dry_run:
         from special_days import first_post_pending
@@ -781,17 +1008,27 @@ def post_news(dry_run=False):
         return
     LOG.info('Haber: %s', news['title'])
     LOG.info('Metin üretimi başladı.')
-    caption = generate_caption(news['title'], news['summary'], news['link'])
-    if not caption:
+    pkg = generate_news_package(news['title'], news['summary'], news['link'])
+    if not pkg or not pkg.get('caption'):
         report_outcome('Metin üretilemedi. Önizleme ve Instagram paylaşımı yapılmadı; haber kaydedilmedi. API hata ayrıntıları çalışma kayıtlarında bulunuyor.')
         return
-    LOG.info('Metin hazır; görsel üretimine geçiliyor.')
+    caption = pkg['caption']
+    format_type = pkg.get('format', 'photo')
+    badge = pkg.get('badge', 'SON DAKİKA')
+    headline = pkg.get('headline', news['title'])
+    sub_headline = pkg.get('sub_headline', '')
+    player_target = pkg.get('player')
+
+    LOG.info('Haber paketi: Format=%s | Rozet=%s | Başlık=%s', format_type, badge, headline)
     with tempfile.TemporaryDirectory(prefix='instagram-news-') as folder:
         image_path = Path(folder) / 'haber.jpg'
         player_photo = {'status': 'no-match'}
         LOG.info('Önce gerçek fotoğraf: oyuncu havuzu ve internet araması.')
-        player_photo = choose_player_photo(news['title'], image_path)
-        image_ready = player_photo['status'] == 'ready'
+        if player_target:
+            player_photo = choose_player_photo(player_target, image_path)
+        if player_photo.get('status') != 'ready':
+            player_photo = choose_player_photo(news['title'], image_path)
+        image_ready = player_photo.get('status') == 'ready'
         if not image_ready:
             image_ready = download_web_image(news, image_path)
         if not image_ready:
@@ -803,9 +1040,6 @@ def post_news(dry_run=False):
         LOG.info('Fotoğraf hazır; ücretsiz yerel Beşiktaş tasarımı hazırlanıyor.')
         designed_path = Path(folder) / 'tasarim.jpg'
         try:
-            headline = caption.split('\n')[0].strip() or news['title']
-            if len(headline) > 120:
-                headline = news['title']
             if render_free_design(image_path, designed_path, headline):
                 image_path = designed_path
         except Exception as exc:
@@ -813,22 +1047,44 @@ def post_news(dry_run=False):
         branded_path = Path(folder) / 'filigranli.jpg'
         apply_claw_branding(image_path, branded_path, framed=image_path == designed_path)
         image_path = branded_path
+
+        # Add news lower third bar to branded photo
+        try:
+            render_news_lower_third(image_path, branded_path, badge=badge, headline=headline, sub_headline=sub_headline)
+        except Exception as exc:
+            LOG.warning('Alt şerit ekleme hatası (%s); filigranlı fotoğraf korunuyor.', type(exc).__name__)
+        media_path = branded_path
+
+        if format_type == 'reel':
+            reel_path = Path(folder) / 'haber.mp4'
+            LOG.info('Reels animasyonu hazırlanıyor: %s', headline)
+            try:
+                if create_news_reel(media_path, reel_path, badge=badge, headline=headline, sub_headline=sub_headline):
+                    media_path = reel_path
+                    LOG.info('Reels videosu başarıyla üretildi.')
+                else:
+                    LOG.warning('Reels videosu oluşturulamadı; fotoğrafa dönülüyor.')
+            except Exception as exc:
+                LOG.warning('Reels hatası (%s); fotoğrafa dönülüyor.', type(exc).__name__)
+
         if dry_run:
             import shutil
             preview = Path('preview')
             preview.mkdir(exist_ok=True)
-            shutil.copyfile(image_path, preview / 'haber.jpg')
+            out_ext = media_path.suffix or '.jpg'
+            shutil.copyfile(media_path, preview / ('haber' + out_ext))
             (preview / 'caption.txt').write_text(caption, encoding='utf-8')
-            report_outcome('Önizleme hazır: haber-onizleme çıktısını indirin. Instagram paylaşımı ve haber kaydı yapılmadı.')
+            (preview / 'meta.json').write_text(json.dumps(pkg, ensure_ascii=False, indent=2), encoding='utf-8')
+            report_outcome(f'Önizleme hazır ({format_type}): haber-onizleme çıktısını indirin. Instagram paylaşımı ve haber kaydı yapılmadı.')
             return
         # Yükleme otomatik tekrarlanmaz: yanıt kaybı çift paylaşıma yol açabilir.
-        media_id = publish(image_path, caption)
+        media_id = publish(media_path, caption)
         save_posted_news(news['link'])
         if news.get('_web_image_url'):
             save_fallback_photo(news['_web_image_url'])
-        if player_photo['status'] == 'ready':
+        if player_photo.get('status') == 'ready':
             save_player_photo(player_photo)
-        report_outcome(f'Instagram paylaşımı doğrulandı; medya kimliği: {media_id}. Haber geçmişe kaydedildi.')
+        report_outcome(f'Instagram paylaşımı ({format_type}) doğrulandı; medya kimliği: {media_id}. Haber geçmişe kaydedildi.')
 
 
 def main():

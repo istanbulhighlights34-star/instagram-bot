@@ -212,6 +212,27 @@ class BotTests(unittest.TestCase):
             bot.post_news()
         self.assertEqual(calls, ['web', 'article', 'design'])
 
+    def test_source_diversity_rotation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            posted_path = Path(folder) / 'posted.txt'
+            posted_path.write_text('https://www.duhuliye.com/haber-1\n', encoding='utf-8')
+            with patch.object(bot, 'POSTED_FILE', posted_path):
+                self.assertEqual(bot.get_last_posted_domain(), 'duhuliye.com')
+
+    def test_generate_news_package_transfer_reel(self):
+        with patch('bot.generate_caption', return_value='Talisca Beşiktaş yolunda!\nDetaylar... #Talisca'):
+            pkg = bot.generate_news_package('Talisca transferi', 'Beşiktaş transfer teklifi yaptı', 'https://fanatik.test/1')
+            self.assertEqual(pkg['badge'], 'TRANSFER İDDİASI')
+            self.assertEqual(pkg['format'], 'reel')
+
+    def test_render_news_lower_third(self):
+        with tempfile.TemporaryDirectory() as folder:
+            src = Path(folder) / 'src.jpg'
+            dst = Path(folder) / 'dst.jpg'
+            Image.new('RGB', (400, 400), 'black').save(src)
+            self.assertTrue(bot.render_news_lower_third(src, dst, badge='SON DAKİKA', headline='KARTAL', sub_headline='Özel'))
+            self.assertTrue(dst.exists())
+
 
 class ImageSearchTests(unittest.TestCase):
     def test_surname_and_club_context(self):
