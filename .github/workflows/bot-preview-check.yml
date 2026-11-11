@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: instagram-bot-${{ github.ref }}
+  group: instagram-preview-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   preview:

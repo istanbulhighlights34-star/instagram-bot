@@ -11,8 +11,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: instagram-bot-${{ github.ref }}
-  cancel-in-progress: false
+  group: instagram-matches-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   matches:
     if: github.ref == 'refs/heads/main'

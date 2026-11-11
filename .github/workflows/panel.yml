@@ -8,8 +8,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: instagram-bot-${{ github.ref }}
-  cancel-in-progress: false
+  group: instagram-panel-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   publish:
     if: github.ref == 'refs/heads/main'

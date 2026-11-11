@@ -2,8 +2,8 @@ name: Instagram AI Bot
 
 on:
   schedule:
-    # Türkiye saati: 11:00, 15:00, 19:00, 22:00 (UTC+3)
-    - cron: '0 8,12,16,19 * * *'
+    # Türkiye saati: 11:15, 15:15, 19:15, 22:15 (UTC+3) - GitHub Actions saat başı kuyruk darboğazını önlemek için :15
+    - cron: '15 8,12,16,19 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: instagram-bot-${{ github.ref }}
+  group: instagram-news-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

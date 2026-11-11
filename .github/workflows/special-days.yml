@@ -1,9 +1,10 @@
 name: Özel Gün Paylaşımları
 on:
   schedule:
-    # Turkey 08:00 then hourly retries; 10 November starts at 08:30.
-    - cron: '0 5-19 * * *'
-    - cron: '30,50 5 * * *'
+    # Türkiye saati 08:15'ten itibaren saatlik denemeler (UTC 05:15 - 19:15)
+    - cron: '15 5-19 * * *'
+    # 10 Kasım gibi özel saatli anmalar için (TSİ 08:35, 08:55)
+    - cron: '35,55 5 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -17,7 +18,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: instagram-bot-${{ github.ref }}
+  group: instagram-special-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   special:
