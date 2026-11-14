@@ -170,19 +170,26 @@ def image_interaction(model, payload):
         client.close()
 
 
+LAST_GEMINI_ERROR = "İstek yapılmadı"
+
+
 def gemini_request(model, payload, image=False):
+    global LAST_GEMINI_ERROR
     key = os.getenv('GEMINI_API_KEY')
     if not key:
+        LAST_GEMINI_ERROR = "GEMINI_API_KEY eksik"
         raise RuntimeError('GEMINI_API_KEY eksik.')
     if not re.fullmatch(r'[a-zA-Z0-9._-]+', model):
+        LAST_GEMINI_ERROR = f"Geçersiz model adı: {model}"
         raise RuntimeError('Geçersiz model adı.')
     if image:
         return image_interaction(model, payload)
     # Anahtar URL veya hata metinlerine yazılmaz.
+    api_ver = os.getenv('GEMINI_API_VERSION', 'v1beta')
     for attempt in range(3):
         try:
             response = requests.post(
-                f'https://generativelanguage.googleapis.com/v1/models/{model}:generateContent',
+                f'https://generativelanguage.googleapis.com/{api_ver}/models/{model}:generateContent',
                 headers={'x-goog-api-key': key}, json=payload, timeout=(10, 90),
             )
             if response.status_code == 200:
@@ -191,13 +198,18 @@ def gemini_request(model, payload, image=False):
                 valid = any(p.get("inlineData", {}).get("data") for p in parts) if image else any(p.get("text", "").strip() for p in parts)
                 if valid:
                     return data
+                LAST_GEMINI_ERROR = f'{model} boş yanıt döndü'
                 LOG.warning("Gemini boş yanıt; deneme %s/3", attempt + 1)
             if response.status_code != 200:
                 reason = {400: 'İstek/model ayarları geçersiz', 401: 'API anahtarı geçersiz', 403: 'API erişim izni yok', 404: 'Model bulunamadı veya hesaba açık değil', 429: 'Kota/hız sınırı', 503: 'Google hizmeti geçici olarak kullanılamıyor'}.get(response.status_code, 'API hatası')
+                raw_text = getattr(response, 'text', '')
+                err_snippet = (raw_text if isinstance(raw_text, str) else str(raw_text)).replace('\n', ' ')[:100]
+                LAST_GEMINI_ERROR = f'{model} HTTP {response.status_code} ({reason}): {err_snippet}'
                 LOG.warning('Gemini %s HTTP %s: %s; deneme %s/3', model, response.status_code, reason, attempt + 1)
             if response.status_code not in (200, 408, 429, 500, 502, 503, 504):
                 return None
         except (requests.RequestException, ValueError) as exc:
+            LAST_GEMINI_ERROR = f'{model} bağlantı hatası: {type(exc).__name__}'
             LOG.warning('Gemini bağlantı/yanıt hatası: %s; deneme %s/3', type(exc).__name__, attempt + 1)
         if attempt < 2:
             time.sleep(10 * (attempt + 1))
@@ -1015,7 +1027,7 @@ def post_news(dry_run=False):
     LOG.info('Metin üretimi başladı.')
     pkg = generate_news_package(news['title'], news['summary'], news['link'])
     if not pkg or not pkg.get('caption'):
-        report_outcome('Metin üretilemedi. Önizleme ve Instagram paylaşımı yapılmadı; haber kaydedilmedi. API hata ayrıntıları çalışma kayıtlarında bulunuyor.')
+        report_outcome(f'Metin üretilemedi ({LAST_GEMINI_ERROR}). Önizleme ve Instagram paylaşımı yapılmadı; haber kaydedilmedi.')
         return
     caption = pkg['caption']
     format_type = pkg.get('format', 'photo')
