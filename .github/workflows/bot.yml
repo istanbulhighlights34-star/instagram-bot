@@ -54,7 +54,7 @@ jobs:
           IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
           IG_SESSION: ${{ secrets.IG_SESSION }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_TEXT_MODEL: gemini-3.8-flash
+          GEMINI_TEXT_MODEL: gemini-2.5-flash
           GEMINI_IMAGE_MODEL: gemini-nano-banana-2.1
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |

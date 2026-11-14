@@ -56,7 +56,7 @@ def save_posted_news(link):
 def is_besiktas_news(title, summary=''):
     """Only explicit club headlines; feed branding and caption tags are not evidence."""
     text = clean_text(title).casefold().replace('ş', 's').replace('ı', 'i')
-    return bool(re.search(r'(?<!\w)(?:besiktas|bjk|kara\s*kartal|siyah[\s-]+beyazl[ıi]lar)(?!\w)', text))
+    return bool(re.search(r'(?<!\w)(?:besiktas\w*|bjk\w*|kara\s*kartal\w*|siyah[\s-]+beyaz\w*)', text))
 
 
 def fetch_fanatik_candidates(scraper, posted):
@@ -76,7 +76,7 @@ def fetch_fanatik_candidates(scraper, posted):
                 clean_txt = ' '.join(html.unescape(re.sub(r'<[^>]+>', ' ', inner)).split())
                 candidate_title = alt_match.group(1).strip() if alt_match and len(alt_match.group(1).strip()) > 10 else clean_txt
                 title = clean_text(candidate_title)
-                if len(title) > 10:
+                if len(title) > 10 and is_besiktas_news(title):
                     stamp = (now[0], now[1], now[2], now[3], now[4], max(0, 59 - idx), now[6], now[7], now[8])
                     candidates.append((stamp, {'title': title, 'summary': title, 'link': full_url}))
     except Exception as exc:
@@ -124,9 +124,8 @@ def get_latest_unposted_news():
     candidates.sort(key=lambda item: item[0], reverse=True)
     last_domain = get_last_posted_domain()
     if last_domain:
-        # Check top fresh candidates for source diversity
-        top_candidates = candidates[:10]
-        diverse_candidate = next((item[1] for item in top_candidates if urlparse(item[1]['link']).netloc.replace('www.', '').lower() != last_domain), None)
+        # Check all fresh candidates for source diversity
+        diverse_candidate = next((item[1] for item in candidates if urlparse(item[1]['link']).netloc.replace('www.', '').lower() != last_domain), None)
         if diverse_candidate:
             return diverse_candidate
     return candidates[0][1]
@@ -222,13 +221,18 @@ def generate_caption(title, summary, link):
         'İlk satırda en fazla 90 karakterlik, habere sadık kısa bir başlık yaz. Ardından boş satır ve paylaşım metni gelsin. Sadece paylaşım metnini ve bu kişi etiketlerini döndür.\n'
         + json.dumps({'başlık': title, 'özet': summary[:8000]}, ensure_ascii=False)
     )
-    data = gemini_request(os.getenv('GEMINI_TEXT_MODEL', 'gemini-3.8-flash'),
-                          {'contents': [{'parts': [{'text': prompt}]}]})
-    text = '\n'.join(part['text'] for part in response_parts(data) if part.get('text')).strip()
-    if not text:
-        LOG.warning('Metin oluşmadı; haber kaydedilmeden sonraki çalışmaya bırakıldı.')
-        return None
-    return format_caption(text, title + " " + summary)
+    models_to_try = [os.getenv('GEMINI_TEXT_MODEL', 'gemini-2.5-flash')]
+    for m in ('gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'):
+        if m not in models_to_try:
+            models_to_try.append(m)
+    for model_name in models_to_try:
+        data = gemini_request(model_name, {'contents': [{'parts': [{'text': prompt}]}]})
+        if data:
+            text = '\n'.join(part['text'] for part in response_parts(data) if part.get('text')).strip()
+            if text:
+                return format_caption(text, title + " " + summary)
+    LOG.warning('Metin oluşmadı; haber kaydedilmeden sonraki çalışmaya bırakıldı.')
+    return None
 
 
 def generate_news_package(title, summary, link):
@@ -475,6 +479,7 @@ def publish(image_path, caption):
 
 def report_outcome(message):
     LOG.info(message)
+    print(f'::notice::{message}')
     summary = os.getenv('GITHUB_STEP_SUMMARY')
     if summary:
         with open(summary, 'a', encoding='utf-8') as stream:
