@@ -173,6 +173,25 @@ def image_interaction(model, payload):
 LAST_GEMINI_ERROR = "İstek yapılmadı"
 
 
+def get_available_gemini_models():
+    key = os.getenv('GEMINI_API_KEY')
+    if not key:
+        return []
+    try:
+        res = requests.get('https://generativelanguage.googleapis.com/v1beta/models',
+                           headers={'x-goog-api-key': key}, timeout=15)
+        if res.status_code == 200:
+            return [
+                m['name'].replace('models/', '')
+                for m in res.json().get('models', [])
+                if 'generateContent' in m.get('supportedGenerationMethods', [])
+                and 'image' not in m.get('name', '')
+            ]
+    except Exception as exc:
+        LOG.warning('Model listesi sorgulanamadı: %s', type(exc).__name__)
+    return []
+
+
 def gemini_request(model, payload, image=False):
     global LAST_GEMINI_ERROR
     key = os.getenv('GEMINI_API_KEY')
@@ -233,11 +252,17 @@ def generate_caption(title, summary, link):
         'İlk satırda en fazla 90 karakterlik, habere sadık kısa bir başlık yaz. Ardından boş satır ve paylaşım metni gelsin. Sadece paylaşım metnini ve bu kişi etiketlerini döndür.\n'
         + json.dumps({'başlık': title, 'özet': summary[:8000]}, ensure_ascii=False)
     )
-    models_to_try = [os.getenv('GEMINI_TEXT_MODEL', 'gemini-2.5-flash')]
-    for m in ('gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'):
-        if m not in models_to_try:
-            models_to_try.append(m)
-    for model_name in models_to_try:
+    available = get_available_gemini_models()
+    preferred = [m for m in available if 'flash' in m] + [m for m in available if 'flash' not in m]
+    configured = os.getenv('GEMINI_TEXT_MODEL')
+    if configured and configured in available:
+        preferred.insert(0, configured)
+    elif configured:
+        preferred.append(configured)
+    if not preferred:
+        preferred = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    LOG.info('Denenen metin modelleri: %s', preferred[:5])
+    for model_name in preferred:
         data = gemini_request(model_name, {'contents': [{'parts': [{'text': prompt}]}]})
         if data:
             text = '\n'.join(part['text'] for part in response_parts(data) if part.get('text')).strip()
